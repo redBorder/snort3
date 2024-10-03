@@ -35,6 +35,7 @@ extern const BaseApi* alert_csv[];
 extern const BaseApi* alert_fast[];
 extern const BaseApi* alert_full[];
 extern const BaseApi* alert_json[];
+extern const BaseApi* alert_kafka[];
 extern const BaseApi* alert_syslog[];
 extern const BaseApi* alert_talos[];
 extern const BaseApi* alert_unixsock[];
@@ -54,6 +55,7 @@ void load_loggers()
     PluginManager::load_plugins(alert_fast);
     PluginManager::load_plugins(alert_full);
     PluginManager::load_plugins(alert_json);
+    PluginManager::load_plugins(alert_kafka);
     PluginManager::load_plugins(alert_syslog);
     PluginManager::load_plugins(alert_talos);
     PluginManager::load_plugins(alert_unixsock);
