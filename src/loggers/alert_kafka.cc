@@ -866,7 +866,7 @@ void KafkaLogger::alert(Packet* p, const char* msg, const Event& event) {
         a.comma = true;
     }
 
-    TextLog_Print(json_log, " }\n");
+    TextLog_Print(json_log, " }");
     std::string message = TextLog_FlushToString(json_log);
     if (rd_kafka_produce(
             rkt, RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_COPY,
