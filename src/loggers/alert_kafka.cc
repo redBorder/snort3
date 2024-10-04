@@ -16,9 +16,8 @@
 //--------------------------------------------------------------------------
 
 // alert_kafka.cc author Miguel Álvarez <malvarez@redborder.com>
-//
 
-// preliminary version based on hacking up alert_json.cc.
+// preliminary version based on hacking up alert_json.cc and putting data into a buffer for sending to kafka
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -34,7 +33,7 @@
 #include "helpers/base64_encoder.h"
 #include "log/log.h"
 #include "log/log_text.h"
-#include "log/text_log.h"
+#include "log/binary_log.h"
 #include "packet_io/active.h"
 #include "packet_io/sfdaq.h"
 #include "protocols/cisco_meta_data.h"
@@ -50,10 +49,10 @@ using namespace std;
 
 #define LOG_BUFFER (4*K_BYTES)
 
-static THREAD_LOCAL TextLog* json_log;
+static THREAD_LOCAL BinaryWriter* json_log;
 
 #define S_NAME "alert_kafka"
-#define F_NAME S_NAME ".txt"
+#define D_TOPIC "rb_event"
 
 //-------------------------------------------------------------------------
 // field formatting functions
@@ -70,15 +69,15 @@ struct Args
 static void print_label(const Args& a, const char* label)
 {
     if ( a.comma )
-        TextLog_Print(json_log, ",");
+        BinaryWriter_Print(json_log, ",");
 
-    TextLog_Print(json_log, " \"%s\" : ", label);
+    BinaryWriter_Print(json_log, " \"%s\" : ", label);
 }
 
 static bool ff_action(const Args& a)
 {
     print_label(a, "action");
-    TextLog_Quote(json_log, a.pkt->active->get_action_string());
+    BinaryWriter_Quote(json_log, a.pkt->active->get_action_string());
     return true;
 }
 
@@ -90,7 +89,7 @@ static bool ff_class(const Args& a)
         cls = a.event.sig_info->class_type->text.c_str();
 
     print_label(a, "class");
-    TextLog_Quote(json_log, cls);
+    BinaryWriter_Quote(json_log, cls);
     return true;
 }
 
@@ -107,20 +106,20 @@ static bool ff_b64_data(const Args& a)
     Base64Encoder b64;
 
     print_label(a, "b64_data");
-    TextLog_Putc(json_log, '"');
+    BinaryWriter_Putc(json_log, '"');
 
     while ( nin < a.pkt->dsize )
     {
         unsigned kin = min(a.pkt->dsize-nin, block_size);
         unsigned kout = b64.encode(in+nin, kin, out);
-        TextLog_Write(json_log, out, kout);
+        BinaryWriter_Write(json_log, out, kout);
         nin += kin;
     }
 
     if ( unsigned kout = b64.finish(out) )
-        TextLog_Write(json_log, out, kout);
+        BinaryWriter_Write(json_log, out, kout);
 
-    TextLog_Putc(json_log, '"');
+    BinaryWriter_Putc(json_log, '"');
     return true;
 }
 
@@ -129,7 +128,7 @@ static bool ff_client_bytes(const Args& a)
     if (a.pkt->flow)
     {
         print_label(a, "client_bytes");
-        TextLog_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.client_bytes);
+        BinaryWriter_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.client_bytes);
         return true;
     }
     return false;
@@ -140,7 +139,7 @@ static bool ff_client_pkts(const Args& a)
     if (a.pkt->flow)
     {
         print_label(a, "client_pkts");
-        TextLog_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.client_pkts);
+        BinaryWriter_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.client_pkts);
         return true;
     }
     return false;
@@ -158,7 +157,7 @@ static bool ff_dir(const Args& a)
         dir = "UNK";
 
     print_label(a, "dir");
-    TextLog_Quote(json_log, dir);
+    BinaryWriter_Quote(json_log, dir);
     return true;
 }
 
@@ -168,7 +167,7 @@ static bool ff_dst_addr(const Args& a)
     {
         SfIpString ip_str;
         print_label(a, "dst_addr");
-        TextLog_Quote(json_log, a.pkt->ptrs.ip_api.get_dst()->ntop(ip_str));
+        BinaryWriter_Quote(json_log, a.pkt->ptrs.ip_api.get_dst()->ntop(ip_str));
         return true;
     }
     return false;
@@ -186,7 +185,7 @@ static bool ff_dst_ap(const Args& a)
         port = a.pkt->ptrs.dp;
 
     print_label(a, "dst_ap");
-    TextLog_Print(json_log, "\"%s:%u\"", addr, port);
+    BinaryWriter_Print(json_log, "\"%s:%u\"", addr, port);
     return true;
 }
 
@@ -195,7 +194,7 @@ static bool ff_dst_port(const Args& a)
     if ( a.pkt->proto_bits & (PROTO_BIT__TCP|PROTO_BIT__UDP) )
     {
         print_label(a, "dst_port");
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.dp);
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.dp);
         return true;
     }
     return false;
@@ -209,7 +208,7 @@ static bool ff_eth_dst(const Args& a)
     print_label(a, "eth_dst");
     const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
 
-    TextLog_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_dst[0],
+    BinaryWriter_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_dst[0],
         eh->ether_dst[1], eh->ether_dst[2], eh->ether_dst[3],
         eh->ether_dst[4], eh->ether_dst[5]);
 
@@ -222,7 +221,7 @@ static bool ff_eth_len(const Args& a)
         return false;
 
     print_label(a, "eth_len");
-    TextLog_Print(json_log, "%u", a.pkt->pkth->pktlen);
+    BinaryWriter_Print(json_log, "%u", a.pkt->pkth->pktlen);
     return true;
 }
 
@@ -234,7 +233,7 @@ static bool ff_eth_src(const Args& a)
     print_label(a, "eth_src");
     const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
 
-    TextLog_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_src[0],
+    BinaryWriter_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_src[0],
         eh->ether_src[1], eh->ether_src[2], eh->ether_src[3],
         eh->ether_src[4], eh->ether_src[5]);
     return true;
@@ -248,7 +247,7 @@ static bool ff_eth_type(const Args& a)
     const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
 
     print_label(a, "eth_type");
-    TextLog_Print(json_log, "\"0x%X\"", ntohs(eh->ether_type));
+    BinaryWriter_Print(json_log, "\"0x%X\"", ntohs(eh->ether_type));
     return true;
 }
 
@@ -257,7 +256,7 @@ static bool ff_flowstart_time(const Args& a)
     if (a.pkt->flow)
     {
         print_label(a, "flowstart_time");
-        TextLog_Print(json_log, "%ld", a.pkt->flow->flowstats.start_time.tv_sec);
+        BinaryWriter_Print(json_log, "%ld", a.pkt->flow->flowstats.start_time.tv_sec);
         return true;
     }
     return false;
@@ -268,7 +267,7 @@ static bool ff_geneve_vni(const Args& a)
     if (a.pkt->proto_bits & PROTO_BIT__GENEVE)
     {
         print_label(a, "geneve_vni");
-        TextLog_Print(json_log, "%u", a.pkt->get_flow_geneve_vni());
+        BinaryWriter_Print(json_log, "%u", a.pkt->get_flow_geneve_vni());
     }
     return true;
 }
@@ -276,7 +275,7 @@ static bool ff_geneve_vni(const Args& a)
 static bool ff_gid(const Args& a)
 {
     print_label(a, "gid");
-    TextLog_Print(json_log, "%u",  a.event.sig_info->gid);
+    BinaryWriter_Print(json_log, "%u",  a.event.sig_info->gid);
     return true;
 }
 
@@ -285,7 +284,7 @@ static bool ff_icmp_code(const Args& a)
     if (a.pkt->ptrs.icmph )
     {
         print_label(a, "icmp_code");
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.icmph->code);
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.icmph->code);
         return true;
     }
     return false;
@@ -296,7 +295,7 @@ static bool ff_icmp_id(const Args& a)
     if (a.pkt->ptrs.icmph )
     {
         print_label(a, "icmp_id");
-        TextLog_Print(json_log, "%u", ntohs(a.pkt->ptrs.icmph->s_icmp_id));
+        BinaryWriter_Print(json_log, "%u", ntohs(a.pkt->ptrs.icmph->s_icmp_id));
         return true;
     }
     return false;
@@ -307,7 +306,7 @@ static bool ff_icmp_seq(const Args& a)
     if (a.pkt->ptrs.icmph )
     {
         print_label(a, "icmp_seq");
-        TextLog_Print(json_log, "%u", ntohs(a.pkt->ptrs.icmph->s_icmp_seq));
+        BinaryWriter_Print(json_log, "%u", ntohs(a.pkt->ptrs.icmph->s_icmp_seq));
         return true;
     }
     return false;
@@ -318,7 +317,7 @@ static bool ff_icmp_type(const Args& a)
     if (a.pkt->ptrs.icmph )
     {
         print_label(a, "icmp_type");
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.icmph->type);
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.icmph->type);
         return true;
     }
     return false;
@@ -327,7 +326,7 @@ static bool ff_icmp_type(const Args& a)
 static bool ff_iface(const Args& a)
 {
     print_label(a, "iface");
-    TextLog_Quote(json_log, SFDAQ::get_input_spec());
+    BinaryWriter_Quote(json_log, SFDAQ::get_input_spec());
     return true;
 }
 
@@ -336,7 +335,7 @@ static bool ff_ip_id(const Args& a)
     if (a.pkt->has_ip())
     {
         print_label(a, "ip_id");
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.ip_api.id());
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.ip_api.id());
         return true;
     }
     return false;
@@ -347,7 +346,7 @@ static bool ff_ip_len(const Args& a)
     if (a.pkt->has_ip())
     {
         print_label(a, "ip_len");
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.ip_api.pay_len());
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.ip_api.pay_len());
         return true;
     }
     return false;
@@ -356,7 +355,7 @@ static bool ff_ip_len(const Args& a)
 static bool ff_msg(const Args& a)
 {
     print_label(a, "msg");
-    TextLog_Puts(json_log, a.msg);
+    BinaryWriter_Puts(json_log, a.msg);
     return true;
 }
 
@@ -374,14 +373,14 @@ static bool ff_mpls(const Args& a)
         return false;
 
     print_label(a, "mpls");
-    TextLog_Print(json_log, "%u", mpls);
+    BinaryWriter_Print(json_log, "%u", mpls);
     return true;
 }
 
 static bool ff_pkt_gen(const Args& a)
 {
     print_label(a, "pkt_gen");
-    TextLog_Quote(json_log, a.pkt->get_pseudo_type());
+    BinaryWriter_Quote(json_log, a.pkt->get_pseudo_type());
     return true;
 }
 
@@ -390,9 +389,9 @@ static bool ff_pkt_len(const Args& a)
     print_label(a, "pkt_len");
 
     if (a.pkt->has_ip())
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.ip_api.dgram_len());
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.ip_api.dgram_len());
     else
-        TextLog_Print(json_log, "%u", a.pkt->dsize);
+        BinaryWriter_Print(json_log, "%u", a.pkt->dsize);
 
     return true;
 }
@@ -400,28 +399,28 @@ static bool ff_pkt_len(const Args& a)
 static bool ff_pkt_num(const Args& a)
 {
     print_label(a, "pkt_num");
-    TextLog_Print(json_log, STDu64, a.pkt->context->packet_number);
+    BinaryWriter_Print(json_log, STDu64, a.pkt->context->packet_number);
     return true;
 }
 
 static bool ff_priority(const Args& a)
 {
     print_label(a, "priority");
-    TextLog_Print(json_log, "%u", a.event.sig_info->priority);
+    BinaryWriter_Print(json_log, "%u", a.event.sig_info->priority);
     return true;
 }
 
 static bool ff_proto(const Args& a)
 {
     print_label(a, "proto");
-    TextLog_Quote(json_log, a.pkt->get_type());
+    BinaryWriter_Quote(json_log, a.pkt->get_type());
     return true;
 }
 
 static bool ff_rev(const Args& a)
 {
     print_label(a, "rev");
-    TextLog_Print(json_log, "%u",  a.event.sig_info->rev);
+    BinaryWriter_Print(json_log, "%u",  a.event.sig_info->rev);
     return true;
 }
 
@@ -429,7 +428,7 @@ static bool ff_rule(const Args& a)
 {
     print_label(a, "rule");
 
-    TextLog_Print(json_log, "\"%u:%u:%u\"",
+    BinaryWriter_Print(json_log, "\"%u:%u:%u\"",
         a.event.sig_info->gid, a.event.sig_info->sid, a.event.sig_info->rev);
 
     return true;
@@ -438,7 +437,7 @@ static bool ff_rule(const Args& a)
 static bool ff_seconds(const Args& a)
 {
     print_label(a, "seconds");
-    TextLog_Print(json_log, "%ld",  a.pkt->pkth->ts.tv_sec);
+    BinaryWriter_Print(json_log, "%ld",  a.pkt->pkth->ts.tv_sec);
     return true;
 }
 
@@ -447,7 +446,7 @@ static bool ff_server_bytes(const Args& a)
     if (a.pkt->flow)
     {
         print_label(a, "server_bytes");
-        TextLog_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.server_bytes);
+        BinaryWriter_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.server_bytes);
         return true;
     }
     return false;
@@ -458,7 +457,7 @@ static bool ff_server_pkts(const Args& a)
     if (a.pkt->flow)
     {
         print_label(a, "server_pkts");
-        TextLog_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.server_pkts);
+        BinaryWriter_Print(json_log, "%" PRIu64, a.pkt->flow->flowstats.server_pkts);
         return true;
     }
     return false;
@@ -472,7 +471,7 @@ static bool ff_service(const Args& a)
         svc = a.pkt->flow->service;
 
     print_label(a, "service");
-    TextLog_Quote(json_log, svc);
+    BinaryWriter_Quote(json_log, svc);
     return true;
 }
 
@@ -482,7 +481,7 @@ static bool ff_sgt(const Args& a)
     {
         const cisco_meta_data::CiscoMetaDataHdr* cmdh = layer::get_cisco_meta_data_layer(a.pkt);
         print_label(a, "sgt");
-        TextLog_Print(json_log, "%hu", cmdh->sgt_val());
+        BinaryWriter_Print(json_log, "%hu", cmdh->sgt_val());
         return true;
     }
     return false;
@@ -491,7 +490,7 @@ static bool ff_sgt(const Args& a)
 static bool ff_sid(const Args& a)
 {
     print_label(a, "sid");
-    TextLog_Print(json_log, "%u",  a.event.sig_info->sid);
+    BinaryWriter_Print(json_log, "%u",  a.event.sig_info->sid);
     return true;
 }
 
@@ -501,7 +500,7 @@ static bool ff_src_addr(const Args& a)
     {
         SfIpString ip_str;
         print_label(a, "src_addr");
-        TextLog_Quote(json_log, a.pkt->ptrs.ip_api.get_src()->ntop(ip_str));
+        BinaryWriter_Quote(json_log, a.pkt->ptrs.ip_api.get_src()->ntop(ip_str));
         return true;
     }
     return false;
@@ -519,7 +518,7 @@ static bool ff_src_ap(const Args& a)
         port = a.pkt->ptrs.sp;
 
     print_label(a, "src_ap");
-    TextLog_Print(json_log, "\"%s:%u\"", addr, port);
+    BinaryWriter_Print(json_log, "\"%s:%u\"", addr, port);
     return true;
 }
 
@@ -528,7 +527,7 @@ static bool ff_src_port(const Args& a)
     if ( a.pkt->proto_bits & (PROTO_BIT__TCP|PROTO_BIT__UDP) )
     {
         print_label(a, "src_port");
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.sp);
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.sp);
         return true;
     }
     return false;
@@ -548,7 +547,7 @@ static bool ff_target(const Args& a)
         return false;
 
     print_label(a, "target");
-    TextLog_Quote(json_log, addr);
+    BinaryWriter_Quote(json_log, addr);
     return true;
 }
 
@@ -557,7 +556,7 @@ static bool ff_tcp_ack(const Args& a)
     if (a.pkt->ptrs.tcph )
     {
         print_label(a, "tcp_ack");
-        TextLog_Print(json_log, "%u", ntohl(a.pkt->ptrs.tcph->th_ack));
+        BinaryWriter_Print(json_log, "%u", ntohl(a.pkt->ptrs.tcph->th_ack));
         return true;
     }
     return false;
@@ -571,7 +570,7 @@ static bool ff_tcp_flags(const Args& a)
         CreateTCPFlagString(a.pkt->ptrs.tcph, tcpFlags);
 
         print_label(a, "tcp_flags");
-        TextLog_Quote(json_log, tcpFlags);
+        BinaryWriter_Quote(json_log, tcpFlags);
         return true;
     }
     return false;
@@ -582,7 +581,7 @@ static bool ff_tcp_len(const Args& a)
     if (a.pkt->ptrs.tcph )
     {
         print_label(a, "tcp_len");
-        TextLog_Print(json_log, "%u", (a.pkt->ptrs.tcph->off()));
+        BinaryWriter_Print(json_log, "%u", (a.pkt->ptrs.tcph->off()));
         return true;
     }
     return false;
@@ -593,7 +592,7 @@ static bool ff_tcp_seq(const Args& a)
     if (a.pkt->ptrs.tcph )
     {
         print_label(a, "tcp_seq");
-        TextLog_Print(json_log, "%u", ntohl(a.pkt->ptrs.tcph->th_seq));
+        BinaryWriter_Print(json_log, "%u", ntohl(a.pkt->ptrs.tcph->th_seq));
         return true;
     }
     return false;
@@ -604,7 +603,7 @@ static bool ff_tcp_win(const Args& a)
     if (a.pkt->ptrs.tcph )
     {
         print_label(a, "tcp_win");
-        TextLog_Print(json_log, "%u", ntohs(a.pkt->ptrs.tcph->th_win));
+        BinaryWriter_Print(json_log, "%u", ntohs(a.pkt->ptrs.tcph->th_win));
         return true;
     }
     return false;
@@ -613,9 +612,9 @@ static bool ff_tcp_win(const Args& a)
 static bool ff_timestamp(const Args& a)
 {
     print_label(a, "timestamp");
-    TextLog_Putc(json_log, '"');
-    LogTimeStamp(json_log, a.pkt);
-    TextLog_Putc(json_log, '"');
+    BinaryWriter_Putc(json_log, '"');
+    BinaryWriter_Print(json_log, "%u", a.pkt);
+    BinaryWriter_Putc(json_log, '"');
     return true;
 }
 
@@ -624,7 +623,7 @@ static bool ff_tos(const Args& a)
     if (a.pkt->has_ip())
     {
         print_label(a, "tos");
-        TextLog_Print(json_log, "%u", a.pkt->ptrs.ip_api.tos());
+        BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.ip_api.tos());
         return true;
     }
     return false;
@@ -635,7 +634,7 @@ static bool ff_ttl(const Args& a)
     if (a.pkt->has_ip())
     {
         print_label(a, "ttl");
-        TextLog_Print(json_log, "%u",a.pkt->ptrs.ip_api.ttl());
+        BinaryWriter_Print(json_log, "%u",a.pkt->ptrs.ip_api.ttl());
         return true;
     }
     return false;
@@ -646,7 +645,7 @@ static bool ff_udp_len(const Args& a)
     if (a.pkt->ptrs.udph )
     {
         print_label(a, "udp_len");
-        TextLog_Print(json_log, "%u", ntohs(a.pkt->ptrs.udph->uh_len));
+        BinaryWriter_Print(json_log, "%u", ntohs(a.pkt->ptrs.udph->uh_len));
         return true;
     }
     return false;
@@ -655,7 +654,7 @@ static bool ff_udp_len(const Args& a)
 static bool ff_vlan(const Args& a)
 {
     print_label(a, "vlan");
-    TextLog_Print(json_log, "%hu", a.pkt->get_flow_vlan_id());
+    BinaryWriter_Print(json_log, "%hu", a.pkt->get_flow_vlan_id());
     return true;
 }
 
@@ -692,14 +691,14 @@ static const JsonFunc json_func[] =
 
 static const Parameter s_params[] =
 {
-    { "file", Parameter::PT_BOOL, nullptr, "false",
-      "output to " F_NAME " instead of stdout" },
+    { "topic", Parameter::PT_STRING,  nullptr, "rb_event",
+      "send data to topic " D_TOPIC },
+
+    { "broker_host", Parameter::PT_STRING,  nullptr, "kafka.service",
+      "Kafka broker host" },
 
     { "fields", Parameter::PT_MULTI, json_range, json_deflt,
       "selected fields will be output in given order left to right" },
-
-    { "limit", Parameter::PT_INT, "0:maxSZ", "0",
-      "set maximum size in MB before rollover (0 is unlimited)" },
 
     { "separator", Parameter::PT_STRING, nullptr, ", ",
       "separate fields with this character sequence" },
@@ -722,18 +721,15 @@ public:
     { return GLOBAL; }
 
 public:
-    bool file = false;
-    size_t limit = 0;
     string sep;
+    string topic;
+    string broker_host;
     vector<JsonFunc> fields;
 };
 
 bool KafkaModule::set(const char*, Value& v, SnortConfig*)
 {
-    if ( v.is("file") )
-        file = v.get_bool();
-
-    else if ( v.is("fields") )
+    if ( v.is("fields") )
     {
         string tok;
         v.set_first_token();
@@ -747,8 +743,11 @@ bool KafkaModule::set(const char*, Value& v, SnortConfig*)
         }
     }
 
-    else if ( v.is("limit") )
-        limit = v.get_size() * 1024 * 1024;
+    else if ( v.is("topic") )
+        topic = v.get_string();
+
+    else if ( v.is("broker_host") )
+        broker_host = v.get_string();
 
     else if ( v.is("separator") )
         sep = v.get_string();
@@ -758,8 +757,6 @@ bool KafkaModule::set(const char*, Value& v, SnortConfig*)
 
 bool KafkaModule::begin(const char*, int, SnortConfig*)
 {
-    file = false;
-    limit = 0;
     sep = ", ";
 
     if ( fields.empty() )
@@ -785,17 +782,17 @@ bool KafkaModule::begin(const char*, int, SnortConfig*)
 class KafkaLogger : public Logger {
 public:
     KafkaLogger(KafkaModule* m);
-    ~KafkaLogger() override;
 
     void open() override; 
     void close() override;
+
     void alert(Packet* p, const char* msg, const Event& event) override;
 
 private:
-    std::string topic;
-    int limit;
-    std::string sep;
-    std::vector<JsonFunc> fields;
+    string topic;
+    string broker_host;
+    string sep;
+    vector<JsonFunc> fields;
     rd_kafka_t* rk;
     rd_kafka_conf_t* conf;
     rd_kafka_topic_t* rkt;
@@ -803,37 +800,24 @@ private:
 };
 
 KafkaLogger::KafkaLogger(KafkaModule* m) 
-    : topic("rb_event"), 
-      limit(m->limit), 
-      sep(m->sep), 
-      fields(std::move(m->fields)),
-      rk(nullptr), 
-      conf(rd_kafka_conf_new()), 
-      rkt(nullptr)
 {
-    if (conf == nullptr) {
-        throw std::runtime_error("Failed to create Kafka configuration");
-    }
-
-    if (rd_kafka_conf_set(conf, "bootstrap.servers", "10.2.209.90:9092", errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
-        throw std::runtime_error("Failed to configure Kafka producer: " + std::string(errstr));
-    }
-}
-
-KafkaLogger::~KafkaLogger() {
-    if (conf) {
-        rd_kafka_conf_destroy(conf);
-    }
-    if (rk) {
-        rd_kafka_destroy(rk);
-    }
-    if (rkt) {
-        rd_kafka_topic_destroy(rkt);
-    }
+    topic = m->topic; 
+    sep = m->sep;
+    fields = std::move(m->fields);
+    broker_host = m->broker_host;
+    rk = nullptr;
+    conf = rd_kafka_conf_new();
+    rkt = nullptr;
 }
 
 void KafkaLogger::open() {
-    json_log = TextLog_Init(topic.c_str(), LOG_BUFFER, limit);
+    if (conf == nullptr) {
+        throw std::runtime_error("Failed to create Kafka configuration");
+    }
+    if (rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
+        throw std::runtime_error("Failed to configure Kafka producer: " + std::string(errstr));
+    }
+    json_log = BinaryWriter_Init(LOG_BUFFER);
     rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
     if (!rk) {
         throw std::runtime_error("Failed to create Kafka producer: " + std::string(errstr));
@@ -847,7 +831,7 @@ void KafkaLogger::open() {
 
 void KafkaLogger::close() {
     if ( json_log )
-        TextLog_Term(json_log);
+        BinaryWriter_Term(json_log);
     if (rkt) {
         rd_kafka_topic_destroy(rkt);
     }
@@ -859,20 +843,24 @@ void KafkaLogger::close() {
 
 void KafkaLogger::alert(Packet* p, const char* msg, const Event& event) {
     Args a = { p, msg, event, false };
-    TextLog_Putc(json_log, '{');
-    for ( JsonFunc f : fields )
-    {
+    BinaryWriter_Putc(json_log, '{');
+    for (JsonFunc f : fields) {
         f(a);
         a.comma = true;
     }
 
-    TextLog_Print(json_log, " }");
-    std::string message = TextLog_FlushToString(json_log);
-    if (rd_kafka_produce(
-            rkt, RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_COPY,
-            const_cast<char*>(message.c_str()), message.size(),
-            nullptr, 0, nullptr) == -1) {
-        fprintf(stderr, "Failed to send message to Kafka: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
+    BinaryWriter_Print(json_log, " }");
+
+    char* eventString = BinaryWriter_FlushToString(json_log);
+    if (eventString) {
+        size_t eventSize = strlen(eventString);
+
+        if (rd_kafka_produce(
+                rkt, RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_COPY,
+                eventString, eventSize,
+                nullptr, 0, nullptr) == -1) {
+            fprintf(stderr, "Failed to send event to Kafka: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
+        }
     }
 
     rd_kafka_poll(rk, 0);
