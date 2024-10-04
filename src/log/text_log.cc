@@ -199,6 +199,31 @@ bool TextLog_Flush(TextLog* const txt)
     }
     return false;
 }
+/*
+    Start of redBorder modified snort3 code
+*/
+
+/*-------------------------------------------------------------------
+ * TextLog_FlushToString: write buffered stream to std::string
+ *-------------------------------------------------------------------
+ */
+std::string TextLog_FlushToString(TextLog* const txt)
+{
+    if (!txt->pos)
+        return "";
+
+    if ( txt->maxFile and txt->size + txt->pos > txt->maxFile )
+        TextLog_Roll(txt);
+
+    std::string result(txt->buf, txt->pos);
+    txt->size += txt->pos;
+    TextLog_Reset(txt);
+    return result;
+}
+
+/*
+    End of redBorder modified snort3 code
+*/
 
 /*-------------------------------------------------------------------
  * TextLog_Putc: append char to buffer

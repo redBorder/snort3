@@ -833,6 +833,7 @@ KafkaLogger::~KafkaLogger() {
 }
 
 void KafkaLogger::open() {
+    json_log = TextLog_Init(topic.c_str(), LOG_BUFFER, limit);
     rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
     if (!rk) {
         throw std::runtime_error("Failed to create Kafka producer: " + std::string(errstr));
@@ -845,6 +846,8 @@ void KafkaLogger::open() {
 }
 
 void KafkaLogger::close() {
+    if ( json_log )
+        TextLog_Term(json_log);
     if (rkt) {
         rd_kafka_topic_destroy(rkt);
     }
@@ -856,20 +859,18 @@ void KafkaLogger::close() {
 
 void KafkaLogger::alert(Packet* p, const char* msg, const Event& event) {
     Args a = { p, msg, event, false };
-    std::string json_message = "{";
-
-    for (JsonFunc f : fields) {
+    TextLog_Putc(json_log, '{');
+    for ( JsonFunc f : fields )
+    {
         f(a);
-        if (a.comma) {
-            json_message += sep;
-        }
         a.comma = true;
     }
-    json_message += " }";
 
+    TextLog_Print(json_log, " }\n");
+    std::string message = TextLog_FlushToString(json_log);
     if (rd_kafka_produce(
             rkt, RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_COPY,
-            const_cast<char*>(json_message.c_str()), json_message.size(),
+            const_cast<char*>(message.c_str()), message.size(),
             nullptr, 0, nullptr) == -1) {
         fprintf(stderr, "Failed to send message to Kafka: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
     }

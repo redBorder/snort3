@@ -35,7 +35,7 @@
  */
 
 #include <cstring>
-
+#include <string>
 #include "main/snort_types.h"
 
 #define K_BYTES (1024)
@@ -58,6 +58,7 @@ SO_PUBLIC bool TextLog_Write(TextLog* const, const char*, int len);
 SO_PUBLIC bool TextLog_Print(TextLog* const, const char* format, ...) __attribute__((format (printf, 2, 3)));
 
 SO_PUBLIC bool TextLog_Flush(TextLog* const);
+SO_PUBLIC std::string TextLog_FlushToString(TextLog* const);
 SO_PUBLIC int TextLog_Avail(TextLog* const);
 SO_PUBLIC void TextLog_Reset(TextLog* const);
 } // namespace snort
