@@ -570,10 +570,10 @@ static bool ff_sgt(const Args& a)
     return false;
 }
 
-static bool ff_sid(const Args& a)
+static bool ff_sig_id(const Args& a)
 {
-    print_label(a, "sid");
-    BinaryWriter_Print(json_log, "%u",  a.event.sig_info->sid);
+    print_label(a, "sig_id");
+    BinaryWriter_Print(json_log, "\"%u\"",  a.event.sig_info->sid);
     return true;
 }
 
@@ -741,24 +741,24 @@ typedef bool (*JsonFunc)(const Args&);
 static const JsonFunc json_func[] =
 {
     ff_action, ff_class, ff_b64_data, ff_client_bytes, ff_client_pkts, ff_dir,
-    ff_dst, ff_dst_ap, ff_dst_port, ff_eth_dst, ff_eth_dst_mac, ff_eth_src_mac, ff_eth_len, ff_eth_src,
+    ff_src, ff_dst, ff_dst_ap, ff_dst_port, ff_eth_dst, ff_eth_dst_mac, ff_eth_src_mac, ff_eth_len, ff_eth_src,
     ff_eth_type, ff_flowstart_time, ff_geneve_vni, ff_gid, ff_icmp_code, ff_icmp_id, ff_icmp_seq,
     ff_icmp_type, ff_iface, ff_ip_id, ff_iplen, ff_msg, ff_mpls, ff_pkt_gen, ff_pkt_len,
     ff_pkt_num, ff_priority, ff_proto, ff_rev, ff_sig_generator, ff_seconds, ff_server_bytes,
-    ff_server_pkts, ff_service, ff_sgt, ff_sid, ff_src, ff_src_ap, ff_src_port,
-    ff_target, ff_tcp_ack, ff_tcp_flags,ff_tcp_len, ff_tcp_seq, ff_tcp_win,
+    ff_server_pkts, ff_service, ff_sgt, ff_sig_id, ff_src_ap, ff_src_port,
+    ff_target, ff_tcp_ack, ff_tcp_flags, ff_tcp_len, ff_tcp_seq, ff_tcp_win,
     ff_tos, ff_ttl, ff_udplen, ff_vlan
 };
 
 #define json_range \
     "action | class | b64_data | client_bytes | client_pkts | dir | " \
-    "dst | dst_ap | dst_port | eth_dst | eth_dst_mac | eth_src_mac | eth_len | eth_src | " \
+    "src | dst | dst_ap | dst_port | eth_dst | eth_dst_mac | eth_src_mac | eth_len | eth_src | " \
     "eth_type | flowstart_time | geneve_vni | gid | icmp_code | icmp_id | icmp_seq | " \
     "icmp_type | iface | ip_id | iplen | msg | mpls | pkt_gen | pkt_len | " \
-    "pkt_num | priority | proto | rev | seconds | server_bytes | " \
-    "server_pkts | service | sgt| sid | src | src_ap | src_port | " \
+    "pkt_num | priority | proto | rev | sig_generator | seconds | server_bytes | " \
+    "server_pkts | service | sgt | sig_id | src_ap | src_port | " \
     "target | tcp_ack | tcp_flags | tcp_len | tcp_seq | tcp_win | " \
-    "tos | ttl | udplen | vlan | sig_generator"
+    "tos | ttl | udplen | vlan"
 
 #define json_deflt \
     "pkt_num proto pkt_gen pkt_len dir src_ap dst_ap action"
@@ -787,6 +787,9 @@ static const Parameter s_params[] =
       "Sensor ip" },
 
     { "group_name", Parameter::PT_STRING,  nullptr, "group_name",
+      "Snort group name" },
+
+    { "mac_vendors", Parameter::PT_STRING,  nullptr, "/path/to/mac_vendors",
       "Snort group name" },
 
     { "fields", Parameter::PT_MULTI, json_range, json_deflt,
@@ -822,6 +825,7 @@ public:
     string sensor_ip;
     string sensor_id_snort;
     string group_name;
+    string mac_vendors;
     vector<JsonFunc> fields;
 };
 
@@ -867,6 +871,9 @@ bool KafkaModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("group_name") )
         group_name = v.get_string();
+
+    else if ( v.is("mac_vendors") )
+        mac_vendors = v.get_string();
 
     return true;
 }
@@ -914,6 +921,7 @@ private:
     string sensor_ip;
     string sensor_id_snort;
     string group_name;
+    string mac_vendors;
     vector<JsonFunc> fields;
     Enrichment enrichment;
     rd_kafka_t* rk;
@@ -938,6 +946,7 @@ KafkaLogger::KafkaLogger(KafkaModule* m)
     sensor_ip = m->sensor_ip;
     sensor_id_snort = m->sensor_id_snort;
     group_name = m->group_name;
+    mac_vendors = m->mac_vendors;
     enrichment.sensor_uuid = sensor_uuid.c_str();
     enrichment.sensor_type = sensor_type.c_str();
     enrichment.sensor_name = sensor_name.c_str();
@@ -965,7 +974,7 @@ void KafkaLogger::open() {
         throw std::runtime_error("Failed to create Kafka topic: " + std::string(rd_kafka_err2str(rd_kafka_last_error())));
     }
     
-    MacVendorDB.insert_mac_vendors_from_file("");
+    MacVendorDB.insert_mac_vendors_from_file(mac_vendors.c_str());
 }
 
 void KafkaLogger::close() {
