@@ -43,6 +43,7 @@
 #include "protocols/udp.h"
 #include "protocols/vlan.h"
 #include "utils/stats.h"
+#include "enrichment/sensor_enrichment.h"
 
 using namespace snort;
 using namespace std;
@@ -697,6 +698,9 @@ static const Parameter s_params[] =
     { "broker_host", Parameter::PT_STRING,  nullptr, "kafka.service",
       "Kafka broker host" },
 
+    { "sensor_uuid", Parameter::PT_STRING,  nullptr, "sensor_uuid",
+      "Sensor uuid" },
+
     { "fields", Parameter::PT_MULTI, json_range, json_deflt,
       "selected fields will be output in given order left to right" },
 
@@ -724,6 +728,7 @@ public:
     string sep;
     string topic;
     string broker_host;
+    string sensor_uuid;
     vector<JsonFunc> fields;
 };
 
@@ -751,6 +756,9 @@ bool KafkaModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("separator") )
         sep = v.get_string();
+
+    else if ( v.is("sensor_uuid") )
+        sensor_uuid = v.get_string();
 
     return true;
 }
@@ -792,7 +800,9 @@ private:
     string topic;
     string broker_host;
     string sep;
+    string sensor_uuid;
     vector<JsonFunc> fields;
+    Enrichment enrichment;
     rd_kafka_t* rk;
     rd_kafka_conf_t* conf;
     rd_kafka_topic_t* rkt;
@@ -808,6 +818,8 @@ KafkaLogger::KafkaLogger(KafkaModule* m)
     rk = nullptr;
     conf = rd_kafka_conf_new();
     rkt = nullptr;
+    sensor_uuid = m->sensor_uuid;
+    enrichment.sensor_uuid = sensor_uuid.c_str();
 }
 
 void KafkaLogger::open() {
@@ -849,20 +861,22 @@ void KafkaLogger::alert(Packet* p, const char* msg, const Event& event) {
         a.comma = true;
     }
 
+    SensorEnrichment::EnrichJsonLog(json_log, enrichment);
     BinaryWriter_Print(json_log, " }");
 
-    char* eventString = BinaryWriter_FlushToString(json_log);
-    if (eventString) {
-        size_t eventSize = strlen(eventString);
+    char* json_event = BinaryWriter_FlushToString(json_log);
+    if (json_event) {
+        size_t json_event_size = strlen(json_event);
 
         if (rd_kafka_produce(
                 rkt, RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_COPY,
-                eventString, eventSize,
+                json_event, json_event_size,
                 nullptr, 0, nullptr) == -1) {
             fprintf(stderr, "Failed to send event to Kafka: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
         }
     }
-
+    
+    free(json_event);
     rd_kafka_poll(rk, 0);
 }
 
