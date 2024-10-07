@@ -22,6 +22,11 @@
 
 struct Enrichment {
     const char* sensor_uuid;
+    const char* sensor_type;
+    const char* sensor_ip;
+    const char* sensor_id_snort;
+    const char* sensor_name;
+    const char* group_name;
 };
 
 #endif // ENRICHMENT_H

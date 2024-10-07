@@ -23,6 +23,10 @@
 void SensorEnrichment::EnrichJsonLog(BinaryWriter* writer, const Enrichment& enrichment) {
     const std::pair<const char*, const char*> params[] = {
         {"sensor_uuid", enrichment.sensor_uuid},
+        {"sensor_name", enrichment.sensor_name},
+        {"sensor_type", enrichment.sensor_type},
+        {"sensor_ip", enrichment.sensor_ip},
+        {"group_name", enrichment.group_name}
     };
     
     for (const auto& param : params) {
@@ -36,4 +40,12 @@ void SensorEnrichment::EnrichJsonLog(BinaryWriter* writer, const Enrichment& enr
             BinaryWriter_Putc(writer, '"');
         }
     }
+
+    BinaryWriter_WriteString(writer, ", ");
+    BinaryWriter_Putc(writer, '"');
+    BinaryWriter_WriteString(writer, "sensor_id_snort");
+    BinaryWriter_Putc(writer, '"');
+    BinaryWriter_WriteString(writer, ": ");
+    BinaryWriter_WriteString(writer, enrichment.sensor_id_snort);
+
 }

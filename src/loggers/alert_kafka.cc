@@ -24,6 +24,7 @@
 #endif
 
 #include <librdkafka/rdkafka.h>
+#include "macs/mac_vendors.h"
 #include "detection/detection_engine.h"
 #include "detection/signature.h"
 #include "events/event.h"
@@ -59,13 +60,43 @@ static THREAD_LOCAL BinaryWriter* json_log;
 // field formatting functions
 //-------------------------------------------------------------------------
 
+/* SHOULD BE IN HELPERS */
+
+uint64_t mac_string_to_uint64(const std::string& mac_address) {
+    std::stringstream ss;
+    uint64_t mac = 0;
+    unsigned int byte;
+
+    for (size_t i = 0; i < mac_address.size(); ++i) {
+        if (mac_address[i] != ':') {
+            ss << mac_address[i];
+        }
+    }
+
+    ss >> std::hex >> mac;
+    return mac;
+}
+
+/* END */
+
 struct Args
 {
     Packet* pkt;
     const char* msg;
     const Event& event;
     bool comma;
+    time_t timestamp;
 };
+
+bool AddTimestampField(const Args& a) {
+    time_t current_time = time(nullptr);
+    if (a.comma) {
+        BinaryWriter_Putc(json_log, ',');
+    }
+    BinaryWriter_Print(json_log, "\"timestamp\": ");
+    BinaryWriter_Print(json_log, std::to_string(current_time).c_str());
+    return true; 
+}
 
 static void print_label(const Args& a, const char* label)
 {
@@ -162,12 +193,12 @@ static bool ff_dir(const Args& a)
     return true;
 }
 
-static bool ff_dst_addr(const Args& a)
+static bool ff_dst(const Args& a)
 {
     if ( a.pkt->has_ip() or a.pkt->is_data() )
     {
         SfIpString ip_str;
-        print_label(a, "dst_addr");
+        print_label(a, "dst");
         BinaryWriter_Quote(json_log, a.pkt->ptrs.ip_api.get_dst()->ntop(ip_str));
         return true;
     }
@@ -206,7 +237,7 @@ static bool ff_eth_dst(const Args& a)
     if ( !(a.pkt->proto_bits & PROTO_BIT__ETH) )
         return false;
 
-    print_label(a, "eth_dst");
+    print_label(a, "ethdst");
     const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
 
     BinaryWriter_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_dst[0],
@@ -221,7 +252,7 @@ static bool ff_eth_len(const Args& a)
     if ( !(a.pkt->proto_bits & PROTO_BIT__ETH) )
         return false;
 
-    print_label(a, "eth_len");
+    print_label(a, "ethlength");
     BinaryWriter_Print(json_log, "%u", a.pkt->pkth->pktlen);
     return true;
 }
@@ -231,7 +262,7 @@ static bool ff_eth_src(const Args& a)
     if ( !(a.pkt->proto_bits & PROTO_BIT__ETH) )
         return false;
 
-    print_label(a, "eth_src");
+    print_label(a, "ethsrc");
     const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
 
     BinaryWriter_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_src[0],
@@ -342,11 +373,11 @@ static bool ff_ip_id(const Args& a)
     return false;
 }
 
-static bool ff_ip_len(const Args& a)
+static bool ff_iplen(const Args& a)
 {
     if (a.pkt->has_ip())
     {
-        print_label(a, "ip_len");
+        print_label(a, "iplen");
         BinaryWriter_Print(json_log, "%u", a.pkt->ptrs.ip_api.pay_len());
         return true;
     }
@@ -425,12 +456,10 @@ static bool ff_rev(const Args& a)
     return true;
 }
 
-static bool ff_rule(const Args& a)
+static bool ff_sig_generator(const Args& a)
 {
-    print_label(a, "rule");
-
-    BinaryWriter_Print(json_log, "\"%u:%u:%u\"",
-        a.event.sig_info->gid, a.event.sig_info->sid, a.event.sig_info->rev);
+    print_label(a, "sig_generator");
+    BinaryWriter_Print(json_log, "\"%u\"", a.event.sig_info->rev);
 
     return true;
 }
@@ -495,12 +524,12 @@ static bool ff_sid(const Args& a)
     return true;
 }
 
-static bool ff_src_addr(const Args& a)
+static bool ff_src(const Args& a)
 {
     if ( a.pkt->has_ip() or a.pkt->is_data() )
     {
         SfIpString ip_str;
-        print_label(a, "src_addr");
+        print_label(a, "src");
         BinaryWriter_Quote(json_log, a.pkt->ptrs.ip_api.get_src()->ntop(ip_str));
         return true;
     }
@@ -610,15 +639,6 @@ static bool ff_tcp_win(const Args& a)
     return false;
 }
 
-static bool ff_timestamp(const Args& a)
-{
-    print_label(a, "timestamp");
-    BinaryWriter_Putc(json_log, '"');
-    BinaryWriter_Print(json_log, "%u", a.pkt);
-    BinaryWriter_Putc(json_log, '"');
-    return true;
-}
-
 static bool ff_tos(const Args& a)
 {
     if (a.pkt->has_ip())
@@ -641,11 +661,11 @@ static bool ff_ttl(const Args& a)
     return false;
 }
 
-static bool ff_udp_len(const Args& a)
+static bool ff_udplen(const Args& a)
 {
     if (a.pkt->ptrs.udph )
     {
-        print_label(a, "udp_len");
+        print_label(a, "udplen");
         BinaryWriter_Print(json_log, "%u", ntohs(a.pkt->ptrs.udph->uh_len));
         return true;
     }
@@ -668,27 +688,27 @@ typedef bool (*JsonFunc)(const Args&);
 static const JsonFunc json_func[] =
 {
     ff_action, ff_class, ff_b64_data, ff_client_bytes, ff_client_pkts, ff_dir,
-    ff_dst_addr, ff_dst_ap, ff_dst_port, ff_eth_dst, ff_eth_len, ff_eth_src,
+    ff_dst, ff_dst_ap, ff_dst_port, ff_eth_dst, ff_eth_len, ff_eth_src,
     ff_eth_type, ff_flowstart_time, ff_geneve_vni, ff_gid, ff_icmp_code, ff_icmp_id, ff_icmp_seq,
-    ff_icmp_type, ff_iface, ff_ip_id, ff_ip_len, ff_msg, ff_mpls, ff_pkt_gen, ff_pkt_len,
-    ff_pkt_num, ff_priority, ff_proto, ff_rev, ff_rule, ff_seconds, ff_server_bytes,
-    ff_server_pkts, ff_service, ff_sgt, ff_sid, ff_src_addr, ff_src_ap, ff_src_port,
-    ff_target, ff_tcp_ack, ff_tcp_flags,ff_tcp_len, ff_tcp_seq, ff_tcp_win, ff_timestamp,
-    ff_tos, ff_ttl, ff_udp_len, ff_vlan
+    ff_icmp_type, ff_iface, ff_ip_id, ff_iplen, ff_msg, ff_mpls, ff_pkt_gen, ff_pkt_len,
+    ff_pkt_num, ff_priority, ff_proto, ff_rev, ff_sig_generator, ff_seconds, ff_server_bytes,
+    ff_server_pkts, ff_service, ff_sgt, ff_sid, ff_src, ff_src_ap, ff_src_port,
+    ff_target, ff_tcp_ack, ff_tcp_flags,ff_tcp_len, ff_tcp_seq, ff_tcp_win,
+    ff_tos, ff_ttl, ff_udplen, ff_vlan
 };
 
 #define json_range \
     "action | class | b64_data | client_bytes | client_pkts | dir | " \
-    "dst_addr | dst_ap | dst_port | eth_dst | eth_len | eth_src | " \
+    "dst | dst_ap | dst_port | eth_dst | eth_len | eth_src | " \
     "eth_type | flowstart_time | geneve_vni | gid | icmp_code | icmp_id | icmp_seq | " \
-    "icmp_type | iface | ip_id | ip_len | msg | mpls | pkt_gen | pkt_len | " \
-    "pkt_num | priority | proto | rev | rule | seconds | server_bytes | " \
-    "server_pkts | service | sgt| sid | src_addr | src_ap | src_port | " \
-    "target | tcp_ack | tcp_flags | tcp_len | tcp_seq | tcp_win | timestamp | " \
-    "tos | ttl | udp_len | vlan"
+    "icmp_type | iface | ip_id | iplen | msg | mpls | pkt_gen | pkt_len | " \
+    "pkt_num | priority | proto | rev | seconds | server_bytes | " \
+    "server_pkts | service | sgt| sid | src | src_ap | src_port | " \
+    "target | tcp_ack | tcp_flags | tcp_len | tcp_seq | tcp_win | " \
+    "tos | ttl | udplen | vlan | sig_generator"
 
 #define json_deflt \
-    "timestamp pkt_num proto pkt_gen pkt_len dir src_ap dst_ap rule action"
+    "pkt_num proto pkt_gen pkt_len dir src_ap dst_ap action"
 
 static const Parameter s_params[] =
 {
@@ -700,6 +720,21 @@ static const Parameter s_params[] =
 
     { "sensor_uuid", Parameter::PT_STRING,  nullptr, "sensor_uuid",
       "Sensor uuid" },
+
+    { "sensor_type", Parameter::PT_STRING,  nullptr, "sensor_type",
+      "Sensor type" },
+
+    { "sensor_id_snort", Parameter::PT_STRING,  nullptr, "sensor_id_snort",
+      "Sensor binding id" },
+
+    { "sensor_name", Parameter::PT_STRING,  nullptr, "sensor_name",
+      "Sensor name" },
+
+    { "sensor_ip", Parameter::PT_STRING,  nullptr, "sensor_ip",
+      "Sensor ip" },
+
+    { "group_name", Parameter::PT_STRING,  nullptr, "group_name",
+      "Snort group name" },
 
     { "fields", Parameter::PT_MULTI, json_range, json_deflt,
       "selected fields will be output in given order left to right" },
@@ -729,6 +764,11 @@ public:
     string topic;
     string broker_host;
     string sensor_uuid;
+    string sensor_type;
+    string sensor_name;
+    string sensor_ip;
+    string sensor_id_snort;
+    string group_name;
     vector<JsonFunc> fields;
 };
 
@@ -759,6 +799,21 @@ bool KafkaModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("sensor_uuid") )
         sensor_uuid = v.get_string();
+
+    else if ( v.is("sensor_type") )
+        sensor_type = v.get_string();
+
+    else if ( v.is("sensor_id_snort") )
+        sensor_id_snort = v.get_string();
+
+    else if ( v.is("sensor_ip") )
+        sensor_ip = v.get_string();
+
+    else if ( v.is("sensor_name") )
+        sensor_name = v.get_string();
+
+    else if ( v.is("group_name") )
+        group_name = v.get_string();
 
     return true;
 }
@@ -801,8 +856,14 @@ private:
     string broker_host;
     string sep;
     string sensor_uuid;
+    string sensor_type;
+    string sensor_name;
+    string sensor_ip;
+    string sensor_id_snort;
+    string group_name;
     vector<JsonFunc> fields;
     Enrichment enrichment;
+    MacVendorDatabase MacVendorDB;
     rd_kafka_t* rk;
     rd_kafka_conf_t* conf;
     rd_kafka_topic_t* rkt;
@@ -814,12 +875,23 @@ KafkaLogger::KafkaLogger(KafkaModule* m)
     topic = m->topic; 
     sep = m->sep;
     fields = std::move(m->fields);
+    fields.push_back(AddTimestampField);
     broker_host = m->broker_host;
     rk = nullptr;
     conf = rd_kafka_conf_new();
     rkt = nullptr;
     sensor_uuid = m->sensor_uuid;
+    sensor_type = m->sensor_type;
+    sensor_name = m->sensor_name;
+    sensor_ip = m->sensor_ip;
+    sensor_id_snort = m->sensor_id_snort;
+    group_name = m->group_name;
     enrichment.sensor_uuid = sensor_uuid.c_str();
+    enrichment.sensor_type = sensor_type.c_str();
+    enrichment.sensor_name = sensor_name.c_str();
+    enrichment.sensor_ip = sensor_ip.c_str();
+    enrichment.sensor_id_snort = sensor_id_snort.c_str();
+    enrichment.group_name = group_name.c_str();
 }
 
 void KafkaLogger::open() {
@@ -830,6 +902,7 @@ void KafkaLogger::open() {
         throw std::runtime_error("Failed to configure Kafka producer: " + std::string(errstr));
     }
     json_log = BinaryWriter_Init(LOG_BUFFER);
+
     rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
     if (!rk) {
         throw std::runtime_error("Failed to create Kafka producer: " + std::string(errstr));
@@ -839,6 +912,8 @@ void KafkaLogger::open() {
     if (!rkt) {
         throw std::runtime_error("Failed to create Kafka topic: " + std::string(rd_kafka_err2str(rd_kafka_last_error())));
     }
+    
+   // MacVendorDB.insert_mac_vendors_from_file("");
 }
 
 void KafkaLogger::close() {
@@ -875,7 +950,17 @@ void KafkaLogger::alert(Packet* p, const char* msg, const Event& event) {
             fprintf(stderr, "Failed to send event to Kafka: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
         }
     }
+
+   /* uint64_t mac_prefix = mac_string_to_uint64("74:56:3C:D0:B7:9C");
+    const char* vendor = MacVendorDB.find_mac_vendor(mac_prefix);
     
+    if (vendor) {
+        std::cout << "Vendor found: " << vendor << "\n";
+    } else {
+        std::cout << "Vendor not found.\n";
+    }
+   */
+    BinaryWriter_Print(json_log, vendor);
     free(json_event);
     rd_kafka_poll(rk, 0);
 }
