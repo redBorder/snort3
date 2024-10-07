@@ -52,6 +52,7 @@ using namespace std;
 #define LOG_BUFFER (4*K_BYTES)
 
 static THREAD_LOCAL BinaryWriter* json_log;
+MacVendorDatabase MacVendorDB;
 
 #define S_NAME "alert_kafka"
 #define D_TOPIC "rb_event"
@@ -232,21 +233,6 @@ static bool ff_dst_port(const Args& a)
     return false;
 }
 
-static bool ff_eth_dst(const Args& a)
-{
-    if ( !(a.pkt->proto_bits & PROTO_BIT__ETH) )
-        return false;
-
-    print_label(a, "ethdst");
-    const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
-
-    BinaryWriter_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_dst[0],
-        eh->ether_dst[1], eh->ether_dst[2], eh->ether_dst[3],
-        eh->ether_dst[4], eh->ether_dst[5]);
-
-    return true;
-}
-
 static bool ff_eth_len(const Args& a)
 {
     if ( !(a.pkt->proto_bits & PROTO_BIT__ETH) )
@@ -268,6 +254,73 @@ static bool ff_eth_src(const Args& a)
     BinaryWriter_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_src[0],
         eh->ether_src[1], eh->ether_src[2], eh->ether_src[3],
         eh->ether_src[4], eh->ether_src[5]);
+    return true;
+}
+
+static bool ff_eth_src_mac(const Args& a)
+{
+    if (!(a.pkt->proto_bits & PROTO_BIT__ETH))
+        return false;
+
+    print_label(a, "ethsrcmac");
+
+    const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
+
+    uint64_t mac_prefix = 0;
+    for (int i = 0; i < 6; ++i) {
+        mac_prefix <<= 8;
+        mac_prefix |= static_cast<uint64_t>(eh->ether_src[i]);
+    }
+
+    const char* vendor = MacVendorDB.find_mac_vendor(mac_prefix);
+
+    if (vendor) {
+        BinaryWriter_Print(json_log, "\"%s\"", vendor);
+    } else {
+        BinaryWriter_Print(json_log, "\"%s\"", "Unknown");
+    }
+
+    return true;
+}
+
+static bool ff_eth_dst(const Args& a)
+{
+    if ( !(a.pkt->proto_bits & PROTO_BIT__ETH) )
+        return false;
+
+    print_label(a, "ethdst");
+    const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
+
+    BinaryWriter_Print(json_log, "\"%02X:%02X:%02X:%02X:%02X:%02X\"", eh->ether_dst[0],
+        eh->ether_dst[1], eh->ether_dst[2], eh->ether_dst[3],
+        eh->ether_dst[4], eh->ether_dst[5]);
+
+    return true;
+}
+
+static bool ff_eth_dst_mac(const Args& a)
+{
+    if (!(a.pkt->proto_bits & PROTO_BIT__ETH))
+        return false;
+
+    print_label(a, "ethdstmac");
+
+    const eth::EtherHdr* eh = layer::get_eth_layer(a.pkt);
+
+    uint64_t mac_prefix = 0;
+    for (int i = 0; i < 6; ++i) {
+        mac_prefix <<= 8;
+        mac_prefix |= static_cast<uint64_t>(eh->ether_dst[i]);
+    }
+
+    const char* vendor = MacVendorDB.find_mac_vendor(mac_prefix);
+
+    if (vendor) {
+        BinaryWriter_Print(json_log, "\"%s\"", vendor);
+    } else {
+        BinaryWriter_Print(json_log, "\"%s\"", "Unknown");
+    }
+
     return true;
 }
 
@@ -688,7 +741,7 @@ typedef bool (*JsonFunc)(const Args&);
 static const JsonFunc json_func[] =
 {
     ff_action, ff_class, ff_b64_data, ff_client_bytes, ff_client_pkts, ff_dir,
-    ff_dst, ff_dst_ap, ff_dst_port, ff_eth_dst, ff_eth_len, ff_eth_src,
+    ff_dst, ff_dst_ap, ff_dst_port, ff_eth_dst, ff_eth_dst_mac, ff_eth_src_mac, ff_eth_len, ff_eth_src,
     ff_eth_type, ff_flowstart_time, ff_geneve_vni, ff_gid, ff_icmp_code, ff_icmp_id, ff_icmp_seq,
     ff_icmp_type, ff_iface, ff_ip_id, ff_iplen, ff_msg, ff_mpls, ff_pkt_gen, ff_pkt_len,
     ff_pkt_num, ff_priority, ff_proto, ff_rev, ff_sig_generator, ff_seconds, ff_server_bytes,
@@ -699,7 +752,7 @@ static const JsonFunc json_func[] =
 
 #define json_range \
     "action | class | b64_data | client_bytes | client_pkts | dir | " \
-    "dst | dst_ap | dst_port | eth_dst | eth_len | eth_src | " \
+    "dst | dst_ap | dst_port | eth_dst | eth_dst_mac | eth_src_mac | eth_len | eth_src | " \
     "eth_type | flowstart_time | geneve_vni | gid | icmp_code | icmp_id | icmp_seq | " \
     "icmp_type | iface | ip_id | iplen | msg | mpls | pkt_gen | pkt_len | " \
     "pkt_num | priority | proto | rev | seconds | server_bytes | " \
@@ -863,7 +916,6 @@ private:
     string group_name;
     vector<JsonFunc> fields;
     Enrichment enrichment;
-    MacVendorDatabase MacVendorDB;
     rd_kafka_t* rk;
     rd_kafka_conf_t* conf;
     rd_kafka_topic_t* rkt;
@@ -913,7 +965,7 @@ void KafkaLogger::open() {
         throw std::runtime_error("Failed to create Kafka topic: " + std::string(rd_kafka_err2str(rd_kafka_last_error())));
     }
     
-   // MacVendorDB.insert_mac_vendors_from_file("");
+    MacVendorDB.insert_mac_vendors_from_file("");
 }
 
 void KafkaLogger::close() {
@@ -951,16 +1003,6 @@ void KafkaLogger::alert(Packet* p, const char* msg, const Event& event) {
         }
     }
 
-   /* uint64_t mac_prefix = mac_string_to_uint64("74:56:3C:D0:B7:9C");
-    const char* vendor = MacVendorDB.find_mac_vendor(mac_prefix);
-    
-    if (vendor) {
-        std::cout << "Vendor found: " << vendor << "\n";
-    } else {
-        std::cout << "Vendor not found.\n";
-    }
-   */
-    BinaryWriter_Print(json_log, vendor);
     free(json_event);
     rd_kafka_poll(rk, 0);
 }
