@@ -63,8 +63,8 @@ MacVendorDatabase MacVendorDB;
 
 /* SHOULD BE IN HELPERS */
 
-uint64_t mac_string_to_uint64(const std::string& mac_address) {
-    std::stringstream ss;
+uint64_t mac_string_to_uint64(const string& mac_address) {
+    stringstream ss;
     uint64_t mac = 0;
     unsigned int byte;
 
@@ -74,7 +74,7 @@ uint64_t mac_string_to_uint64(const std::string& mac_address) {
         }
     }
 
-    ss >> std::hex >> mac;
+    ss >> hex >> mac;
     return mac;
 }
 
@@ -95,7 +95,7 @@ bool AddTimestampField(const Args& a) {
         BinaryWriter_Putc(json_log, ',');
     }
     BinaryWriter_Print(json_log, "\"timestamp\": ");
-    BinaryWriter_Print(json_log, std::to_string(current_time).c_str());
+    BinaryWriter_Print(json_log, to_string(current_time).c_str());
     return true; 
 }
 
@@ -469,6 +469,54 @@ static bool ff_pkt_gen(const Args& a)
     return true;
 }
 
+static bool ff_ethlength_range(const Args& a) {
+    if (a.pkt) {
+        int len = 0;
+
+        if (a.pkt->has_ip())
+            len = a.pkt->ptrs.ip_api.dgram_len();
+        else
+            len = a.pkt->dsize;
+
+        print_label(a, "ethlength_range");
+
+        if (len == 0) {
+            BinaryWriter_Print(json_log, "\"0\"");
+        } else if (len <= 64) {
+            BinaryWriter_Print(json_log, "\"(0-64]\"");
+        } else if (len <= 128) {
+            BinaryWriter_Print(json_log, "\"(64-128]\"");
+        } else if (len <= 256) {
+            BinaryWriter_Print(json_log, "\"(128-256]\"");
+        } else if (len <= 512) {
+            BinaryWriter_Print(json_log, "\"(256-512]\"");
+        } else if (len <= 768) {
+            BinaryWriter_Print(json_log, "\"(512-768]\"");
+        } else if (len <= 1024) {
+            BinaryWriter_Print(json_log, "\"(768-1024]\"");
+        } else if (len <= 1280) {
+            BinaryWriter_Print(json_log, "\"(1024-1280]\"");
+        } else if (len <= 1514) {
+            BinaryWriter_Print(json_log, "\"(1280-1514]\"");
+        } else if (len <= 2048) {
+            BinaryWriter_Print(json_log, "\"(1514-2048]\"");
+        } else if (len <= 4096) {
+            BinaryWriter_Print(json_log, "\"(2048-4096]\"");
+        } else if (len <= 8192) {
+            BinaryWriter_Print(json_log, "\"(4096-8192]\"");
+        } else if (len <= 16384) {
+            BinaryWriter_Print(json_log, "\"(8192-16384]\"");
+        } else if (len <= 32768) {
+            BinaryWriter_Print(json_log, "\"(16384-32768]\"");
+        } else {
+            BinaryWriter_Print(json_log, "\">32768\"");
+        }
+
+        return true;
+    }
+    return false;
+}
+
 static bool ff_pkt_len(const Args& a)
 {
     print_label(a, "pkt_len");
@@ -747,7 +795,7 @@ static const JsonFunc json_func[] =
     ff_pkt_num, ff_priority, ff_proto, ff_rev, ff_sig_generator, ff_seconds, ff_server_bytes,
     ff_server_pkts, ff_service, ff_sgt, ff_sig_id, ff_src_ap, ff_src_port,
     ff_target, ff_tcp_ack, ff_tcp_flags, ff_tcp_len, ff_tcp_seq, ff_tcp_win,
-    ff_tos, ff_ttl, ff_udplen, ff_vlan
+    ff_tos, ff_ttl, ff_udplen, ff_ethlength_range, ff_vlan
 };
 
 #define json_range \
@@ -758,7 +806,7 @@ static const JsonFunc json_func[] =
     "pkt_num | priority | proto | rev | sig_generator | seconds | server_bytes | " \
     "server_pkts | service | sgt | sig_id | src_ap | src_port | " \
     "target | tcp_ack | tcp_flags | tcp_len | tcp_seq | tcp_win | " \
-    "tos | ttl | udplen | vlan"
+    "tos | ttl | udplen | ethlength_range | vlan"
 
 #define json_deflt \
     "pkt_num proto pkt_gen pkt_len dir src_ap dst_ap action"
@@ -934,7 +982,7 @@ KafkaLogger::KafkaLogger(KafkaModule* m)
 {
     topic = m->topic; 
     sep = m->sep;
-    fields = std::move(m->fields);
+    fields = move(m->fields);
     fields.push_back(AddTimestampField);
     broker_host = m->broker_host;
     rk = nullptr;
@@ -957,21 +1005,21 @@ KafkaLogger::KafkaLogger(KafkaModule* m)
 
 void KafkaLogger::open() {
     if (conf == nullptr) {
-        throw std::runtime_error("Failed to create Kafka configuration");
+        throw runtime_error("Failed to create Kafka configuration");
     }
     if (rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
-        throw std::runtime_error("Failed to configure Kafka producer: " + std::string(errstr));
+        throw runtime_error("Failed to configure Kafka producer: " + string(errstr));
     }
     json_log = BinaryWriter_Init(LOG_BUFFER);
 
     rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
     if (!rk) {
-        throw std::runtime_error("Failed to create Kafka producer: " + std::string(errstr));
+        throw runtime_error("Failed to create Kafka producer: " + string(errstr));
     }
 
     rkt = rd_kafka_topic_new(rk, topic.c_str(), nullptr);
     if (!rkt) {
-        throw std::runtime_error("Failed to create Kafka topic: " + std::string(rd_kafka_err2str(rd_kafka_last_error())));
+        throw runtime_error("Failed to create Kafka topic: " + string(rd_kafka_err2str(rd_kafka_last_error())));
     }
     
     MacVendorDB.insert_mac_vendors_from_file(mac_vendors.c_str());
