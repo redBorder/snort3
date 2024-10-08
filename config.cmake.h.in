@@ -147,8 +147,8 @@
 /* RDKAFKA available */
 #cmakedefine HAVE_RDKAFKA 1
 
-/* RDKAFKA available */
-#cmakedefine HAVE_LIBRD 1
+/* GEOLITE available */
+#cmakedefine HAVE_GEOLITE 1
 
 /* tirpc should be used for RPC database lookups */
 #cmakedefine USE_TIRPC 1

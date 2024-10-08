@@ -13,6 +13,8 @@ set(EXTERNAL_LIBRARIES
     ${PCRE_LIBRARIES}
     ${ZLIB_LIBRARIES}
     ${RDKAFKA_LIBRARIES}
+    ${GEOLITE_LIBRARY}
+    ${MAXMINDDB_LIBRARY}
 )
 
 set(EXTERNAL_INCLUDES
@@ -24,6 +26,7 @@ set(EXTERNAL_INCLUDES
     ${PCAP_INCLUDE_DIR}
     ${PCRE_INCLUDE_DIR}
     ${ZLIB_INCLUDE_DIRS}
+    ${GEOLITE_INCLUDE_DIR}
 )
 
 if ( ENABLE_STATIC_DAQ )
@@ -73,6 +76,12 @@ if ( HAVE_RDKAFKA )
     LIST(APPEND EXTERNAL_INCLUDES ${RDKAFKA_INCLUDE_DIR})
 endif ()
 
+if ( HAVE_GEOLITE )
+    LIST(APPEND EXTERNAL_LIBRARIES ${GEOLITE_LIBRARY})
+    LIST(APPEND EXTERNAL_INCLUDES ${MAXMINDDB_LIBRARY})
+    LIST(APPEND EXTERNAL_INCLUDES ${GEOLITE_INCLUDE_DIR})
+endif ()
+
 if ( USE_TIRPC )
     LIST(APPEND EXTERNAL_LIBRARIES ${TIRPC_LIBRARIES})
     LIST(APPEND EXTERNAL_INCLUDES ${TIRPC_INCLUDE_DIRS})
@@ -99,6 +108,7 @@ add_subdirectory(codecs)
 add_subdirectory(control)
 add_subdirectory(detection)
 add_subdirectory(enrichment)
+add_subdirectory(geoip)
 add_subdirectory(macs)
 add_subdirectory(dump_config)
 add_subdirectory(events)
@@ -154,6 +164,7 @@ add_executable( snort
     $<TARGET_OBJECTS:decompress>
     $<TARGET_OBJECTS:detection>
     $<TARGET_OBJECTS:macs>
+    $<TARGET_OBJECTS:geoip>
     $<TARGET_OBJECTS:enrichment>
     $<TARGET_OBJECTS:dump_config>
     $<TARGET_OBJECTS:events>
