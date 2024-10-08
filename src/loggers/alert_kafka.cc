@@ -483,11 +483,11 @@ static bool ff_pkt_gen(const Args &a)
     return true;
 }
 
-static bool ff_dst_country(const Args &a)
+static bool ff_dst_country_code(const Args &a)
 {
     if (a.pkt->has_ip() || a.pkt->is_data())
     {
-        print_label(a, "dst_country");
+        print_label(a, "dst_country_code");
         SfIpString ip_str;
         a.pkt->ptrs.ip_api.get_dst()->ntop(ip_str);
         string ip_string = ip_str;
@@ -498,11 +498,11 @@ static bool ff_dst_country(const Args &a)
     return false;
 }
 
-static bool ff_src_country(const Args &a)
+static bool ff_src_country_code(const Args &a)
 {
     if (a.pkt->has_ip() || a.pkt->is_data())
     {
-        print_label(a, "src_country");
+        print_label(a, "src_country_code");
         SfIpString ip_str;
         a.pkt->ptrs.ip_api.get_src()->ntop(ip_str);
         string ip_string = ip_str;
@@ -511,6 +511,20 @@ static bool ff_src_country(const Args &a)
         return true;
     }
     return false;
+}
+
+static bool ff_dst_country(const Args &a)
+{
+    print_label(a, "dst_country");
+    BinaryWriter_Print(json_log, "\"Unknown\"");
+    return true;
+}
+
+static bool ff_src_country(const Args &a)
+{
+    print_label(a, "src_country");
+    BinaryWriter_Print(json_log, "\"Unknown\"");
+    return true;
 }
 
 static bool ff_ethlength_range(const Args &a)
@@ -870,7 +884,7 @@ static const JsonFunc json_func[] =
         ff_pkt_num, ff_priority, ff_proto, ff_rev, ff_sig_generator, ff_seconds, ff_server_bytes,
         ff_server_pkts, ff_service, ff_sgt, ff_sig_id, ff_src_ap, ff_src_port,
         ff_target, ff_tcp_ack, ff_tcp_flags, ff_tcp_len, ff_tcp_seq, ff_tcp_win,
-        ff_tos, ff_ttl, ff_udplen, ff_ethlength_range, ff_vlan, ff_src_country, ff_dst_country};
+        ff_tos, ff_ttl, ff_udplen, ff_ethlength_range, ff_vlan, ff_src_country, ff_dst_country, ff_src_country_code, ff_dst_country_code};
 
 #define json_range                                                                               \
     "action | class | b64_data | client_bytes | client_pkts | dir | "                            \
@@ -880,7 +894,7 @@ static const JsonFunc json_func[] =
     "pkt_num | priority | proto | rev | sig_generator | seconds | server_bytes | "               \
     "server_pkts | service | sgt | sig_id | src_ap | src_port | "                                \
     "target | tcp_ack | tcp_flags | tcp_len | tcp_seq | tcp_win | "                              \
-    "tos | ttl | udplen | ethlength_range | vlan | src_country | dst_country"
+    "tos | ttl | udplen | ethlength_range | vlan | src_country | dst_country | src_country_code | dst_country_code"
 
 #define json_deflt \
     "pkt_num proto pkt_gen pkt_len dir src_ap dst_ap action"
