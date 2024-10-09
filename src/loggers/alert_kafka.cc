@@ -53,6 +53,7 @@ using namespace std;
 #define LOG_BUFFER (4 * K_BYTES)
 
 static THREAD_LOCAL BinaryWriter *json_log;
+static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
 MacVendorDatabase MacVendorDB;
 
 #define S_NAME "alert_kafka"
@@ -80,6 +81,14 @@ uint64_t mac_string_to_uint64(const string &mac_address)
 
     ss >> hex >> mac;
     return mac;
+}
+
+std::string GetAction(const Packet* packet) {
+    if(packet->active->packet_was_dropped()) return "drop";
+    if(packet->active->packet_would_be_dropped()) return "should_drop";
+    if(packet->active->packet_cant_be_dropped()) return "cant_drop";
+    if(packet->active->packet_would_be_allowed()) return "alert";
+    return "log";
 }
 
 /* END */
@@ -116,7 +125,8 @@ static void print_label(const Args &a, const char *label)
 static bool ff_action(const Args &a)
 {
     print_label(a, "action");
-    BinaryWriter_Quote(json_log, a.pkt->active->get_action_string());
+    string action = GetAction(a.pkt);
+    BinaryWriter_Quote(json_log, action.c_str());
     return true;
 }
 
@@ -498,6 +508,16 @@ static bool ff_dst_country_code(const Args &a)
     return false;
 }
 
+static bool ff_priority(const Args &a){
+    const int priority_id = a.event.sig_info->priority;
+    const char *prio_name = NULL;
+    if(priority_id < sizeof(priority_name)/sizeof(priority_name[0]))
+        prio_name = priority_name[priority_id];
+    print_label(a, "priority");
+    BinaryWriter_Print(json_log, "\"%s\"", prio_name);
+    return true;
+}
+
 static bool ff_src_country_code(const Args &a)
 {
     if (a.pkt->has_ip() || a.pkt->is_data())
@@ -622,13 +642,6 @@ static bool ff_pkt_num(const Args &a)
 {
     print_label(a, "pkt_num");
     BinaryWriter_Print(json_log, STDu64, a.pkt->context->packet_number);
-    return true;
-}
-
-static bool ff_priority(const Args &a)
-{
-    print_label(a, "priority");
-    BinaryWriter_Print(json_log, "%u", a.event.sig_info->priority);
     return true;
 }
 
@@ -884,7 +897,9 @@ static const JsonFunc json_func[] =
         ff_pkt_num, ff_priority, ff_proto, ff_rev, ff_sig_generator, ff_seconds, ff_server_bytes,
         ff_server_pkts, ff_service, ff_sgt, ff_sig_id, ff_src_ap, ff_src_port,
         ff_target, ff_tcp_ack, ff_tcp_flags, ff_tcp_len, ff_tcp_seq, ff_tcp_win,
-        ff_tos, ff_ttl, ff_udplen, ff_ethlength_range, ff_vlan, ff_src_country, ff_dst_country, ff_src_country_code, ff_dst_country_code};
+        ff_tos, ff_ttl, ff_udplen, ff_ethlength_range, ff_vlan, ff_src_country, ff_dst_country, ff_src_country_code,
+        ff_dst_country_code, ff_priority
+    };
 
 #define json_range                                                                               \
     "action | class | b64_data | client_bytes | client_pkts | dir | "                            \
@@ -894,7 +909,8 @@ static const JsonFunc json_func[] =
     "pkt_num | priority | proto | rev | sig_generator | seconds | server_bytes | "               \
     "server_pkts | service | sgt | sig_id | src_ap | src_port | "                                \
     "target | tcp_ack | tcp_flags | tcp_len | tcp_seq | tcp_win | "                              \
-    "tos | ttl | udplen | ethlength_range | vlan | src_country | dst_country | src_country_code | dst_country_code"
+    "tos | ttl | udplen | ethlength_range | vlan | src_country | dst_country | "                 \
+    "src_country_code | dst_country_code | priority "
 
 #define json_deflt \
     "pkt_num proto pkt_gen pkt_len dir src_ap dst_ap action"
