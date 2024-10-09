@@ -20,11 +20,8 @@ pkg_check_modules(PC_DAQ libdaq>=3.0.16)
 
 # Use DAQ_INCLUDE_DIR_HINT and DAQ_LIBRARIES_DIR_HINT from configure_cmake.sh as primary hints
 # and then package config information after that.
-find_path(DAQ_INCLUDE_DIR
-    NAMES daq.h
-    HINTS ${DAQ_INCLUDE_DIR_HINT} ${PC_DAQ_INCLUDEDIR} ${PC_DAQ_INCLUDE_DIRS}
-    NO_SYSTEM_ENVIRONMENT_PATH
-)
+set(DAQ_INCLUDE_DIR "/usr/include/daq")
+
 find_library(DAQ_LIBRARIES
     NAMES daq
     HINTS ${DAQ_LIBRARIES_DIR_HINT} ${PC_DAQ_LIBDIR} ${PC_DAQ_LIBRARY_DIRS}
