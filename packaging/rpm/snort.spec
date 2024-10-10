@@ -39,8 +39,8 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Packager: Official Snort.org %{for_distro}
 Vendor: %{vendor}
-Requires: libdaq, libdaq-modules, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka, xz
-BuildRequires: xz-devel,flex, libdaq, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex
+Requires: libgeolite, libmaxminddb, libdaq, libdaq-modules, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka, xz
+BuildRequires: libgeolite-devel, libmaxminddb-devel, xz-devel,flex, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex
 
 %description
 Snort is an open source network intrusion detection system, capable of
@@ -74,10 +74,10 @@ Development tools for Snort
 #%{__sed} -i -r -e '/-DCMAKE_EXPORT_COMPILE_COMMANDS/ a -DLIBLZMA_LIBRARIES=/usr/lib64/liblzma.so.5 \\' ./configure_cmake.sh
 CFLAGS="$RPM_OPT_FLAGS"
 export AM_CFLAGS="-g -O2"
-./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc 
+./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell
 # --disable-gdb
 cd ./build
-%{make_build} all
+%{make_build} VERBOSE=1
 
 
 %install
@@ -120,7 +120,6 @@ fi
 %files
 %defattr(-,root,root)
 %attr(0755,root,root) %{_libdir}/daq/*.so
-%attr(0755,root,root) %{_bindir}/appid_detector_builder.sh
 %attr(0755,root,root) %{_bindir}/u2boat
 %attr(0755,root,root) %{_bindir}/u2spewfoo
 %attr(0755,root,root) %{_bindir}/snort2lua
