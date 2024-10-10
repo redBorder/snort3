@@ -136,6 +136,12 @@ public:
     bool packet_would_be_dropped() const
     { return active_status == AST_WOULD; }
 
+    bool packet_cant_be_dropped() const
+    { return active_status == AST_CANT; }
+
+    bool packet_would_be_allowed() const
+    { return active_status == AST_ALLOW;}
+
     ActiveWouldReason get_would_be_dropped_reason() const
     { return active_would_reason; }
 

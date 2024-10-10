@@ -19,6 +19,7 @@ add_library ( log OBJECT
     messages.cc
     obfuscator.cc
     text_log.cc
+    binary_log.cc
     u2_packet.cc
 )
 
