@@ -4,6 +4,7 @@
 # Other useful bits
 %define SnortRulesDir %{_sysconfdir}/snort/rules
 %define noShell /bin/false
+%define _unpackaged_files_terminate_build 0
 
 %define vendor Snort.org
 %define for_distro RPMs
@@ -38,8 +39,8 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Packager: Official Snort.org %{for_distro}
 Vendor: %{vendor}
-Requires: libdaq, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka
-BuildRequires: libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex
+Requires: libdaq, libdaq-modules, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka, xz
+BuildRequires: xz-devel,flex, libdaq, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex
 
 %description
 Snort is an open source network intrusion detection system, capable of
@@ -83,7 +84,7 @@ cd ./build
 cd ./build
 %{make_install}
 
-%{__mv} $RPM_BUILD_ROOT%{_libdir}/%{realname}/daqs $RPM_BUILD_ROOT%{_libdir}/daq
+%{__mv} $RPM_BUILD_ROOT%{_libdir}/%{realname}/daq $RPM_BUILD_ROOT%{_libdir}/daq
 [[ "X$RPM_BUILD_ROOT" = "X/" ]] || %{__rm} -rf $RPM_BUILD_ROOT%{_libdir}/%{realname}
 %{__mkdir_p} $RPM_BUILD_ROOT%{_sbindir}
 %{__mv} $RPM_BUILD_ROOT%{_bindir}/%{realname} $RPM_BUILD_ROOT%{_sbindir}/
@@ -120,7 +121,6 @@ fi
 %defattr(-,root,root)
 %attr(0755,root,root) %{_libdir}/daq/*.so
 %attr(0755,root,root) %{_bindir}/appid_detector_builder.sh
-%attr(0755,root,root) %{_bindir}/fbstreamer
 %attr(0755,root,root) %{_bindir}/u2boat
 %attr(0755,root,root) %{_bindir}/u2spewfoo
 %attr(0755,root,root) %{_bindir}/snort2lua
