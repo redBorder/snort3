@@ -130,17 +130,16 @@ static bool ff_action(const Args &a)
     return true;
 }
 
-static bool ff_class(const Args &a)
+static bool ff_class(const Args& a)
 {
-    const char *cls = "none";
-
-    if (a.event.sig_info->class_type and !a.event.sig_info->class_type->text.empty())
-        cls = a.event.sig_info->class_type->text.c_str();
+    const char* cls = a.event.get_class_type();
+    if ( !cls ) cls = "none";
 
     print_label(a, "class");
     BinaryWriter_Quote(json_log, cls);
     return true;
 }
+
 
 static bool ff_b64_data(const Args &a)
 {
@@ -384,7 +383,7 @@ static bool ff_geneve_vni(const Args &a)
 static bool ff_gid(const Args &a)
 {
     print_label(a, "gid");
-    BinaryWriter_Print(json_log, "%u", a.event.sig_info->gid);
+    BinaryWriter_Print(json_log, "%u", a.event.get_gid());
     return true;
 }
 
@@ -509,7 +508,7 @@ static bool ff_dst_country_code(const Args &a)
 }
 
 static bool ff_priority(const Args &a){
-    const int priority_id = a.event.sig_info->priority;
+    const int priority_id = a.event.get_priority();
     const char *prio_name = NULL;
     if(priority_id < sizeof(priority_name)/sizeof(priority_name[0]))
         prio_name = priority_name[priority_id];
@@ -655,14 +654,14 @@ static bool ff_proto(const Args &a)
 static bool ff_rev(const Args &a)
 {
     print_label(a, "rev");
-    BinaryWriter_Print(json_log, "%u", a.event.sig_info->rev);
+    BinaryWriter_Print(json_log, "%u",  a.event.get_rev());
     return true;
 }
 
 static bool ff_sig_generator(const Args &a)
 {
     print_label(a, "sig_generator");
-    BinaryWriter_Print(json_log, "\"%u\"", a.event.sig_info->rev);
+    BinaryWriter_Print(json_log, "\"%u\"",  a.event.get_rev());
 
     return true;
 }
@@ -723,7 +722,9 @@ static bool ff_sgt(const Args &a)
 static bool ff_sig_id(const Args &a)
 {
     print_label(a, "sig_id");
-    BinaryWriter_Print(json_log, "\"%u\"", a.event.sig_info->sid);
+    uint32_t gid, sid, rev;
+    a.event.get_sig_ids(gid, sid, rev);
+    BinaryWriter_Print(json_log, "\"%u\"", sid);
     return true;
 }
 
@@ -766,18 +767,19 @@ static bool ff_src_port(const Args &a)
     return false;
 }
 
-static bool ff_target(const Args &a)
+static bool ff_target(const Args& a)
 {
     SfIpString addr = "";
+    bool src;
 
-    if (a.event.sig_info->target == TARGET_SRC)
+    if ( !a.event.get_target(src) )
+        return false;
+
+    if ( src )
         a.pkt->ptrs.ip_api.get_src()->ntop(addr);
 
-    else if (a.event.sig_info->target == TARGET_DST)
-        a.pkt->ptrs.ip_api.get_dst()->ntop(addr);
-
     else
-        return false;
+        a.pkt->ptrs.ip_api.get_dst()->ntop(addr);
 
     print_label(a, "target");
     BinaryWriter_Quote(json_log, addr);
@@ -795,12 +797,12 @@ static bool ff_tcp_ack(const Args &a)
     return false;
 }
 
-static bool ff_tcp_flags(const Args &a)
+static bool ff_tcp_flags(const Args& a)
 {
-    if (a.pkt->ptrs.tcph)
+    if (a.pkt->ptrs.tcph )
     {
         char tcpFlags[9];
-        CreateTCPFlagString(a.pkt->ptrs.tcph, tcpFlags);
+        a.pkt->ptrs.tcph->stringify_flags(tcpFlags);
 
         print_label(a, "tcp_flags");
         BinaryWriter_Quote(json_log, tcpFlags);
