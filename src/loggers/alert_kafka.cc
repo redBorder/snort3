@@ -53,8 +53,16 @@ using namespace std;
 #define LOG_BUFFER (4 * K_BYTES)
 
 static THREAD_LOCAL BinaryWriter *json_log;
-static THREAD_LOCAL MacVendorDatabase MacVendorDB;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
+
+thread_local std::unique_ptr<MacVendorDatabase> _MacVendorDB = nullptr;
+
+MacVendorDatabase& MacVendorDB() {
+    if (!_MacVendorDB) {
+        _MacVendorDB = std::make_unique<MacVendorDatabase>();
+    }
+    return *_MacVendorDB;
+}
 
 #define S_NAME "alert_kafka"
 #define D_TOPIC "rb_event"
@@ -62,36 +70,6 @@ static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"}
 //-------------------------------------------------------------------------
 // field formatting functions
 //-------------------------------------------------------------------------
-
-/* SHOULD BE IN HELPERS */
-
-uint64_t mac_string_to_uint64(const string &mac_address)
-{
-    stringstream ss;
-    uint64_t mac = 0;
-    unsigned int byte;
-
-    for (size_t i = 0; i < mac_address.size(); ++i)
-    {
-        if (mac_address[i] != ':')
-        {
-            ss << mac_address[i];
-        }
-    }
-
-    ss >> hex >> mac;
-    return mac;
-}
-
-std::string GetAction(const Packet* packet) {
-    if(packet->active->packet_was_dropped()) return "drop";
-    if(packet->active->packet_would_be_dropped()) return "should_drop";
-    if(packet->active->packet_cant_be_dropped()) return "cant_drop";
-    if(packet->active->packet_would_be_allowed()) return "alert";
-    return "log";
-}
-
-/* END */
 
 struct Args
 {
@@ -125,8 +103,7 @@ static void print_label(const Args &a, const char *label)
 static bool ff_action(const Args &a)
 {
     print_label(a, "action");
-    string action = GetAction(a.pkt);
-    BinaryWriter_Quote(json_log, action.c_str());
+    BinaryWriter_Quote(json_log, a.pkt->active->get_real_action_string());
     return true;
 }
 
@@ -288,7 +265,7 @@ static bool ff_eth_src_mac(const Args &a)
         mac_prefix |= static_cast<uint64_t>(eh->ether_src[i]);
     }
 
-    const char *vendor = MacVendorDB.find_mac_vendor(mac_prefix);
+    const char *vendor = MacVendorDB().find_mac_vendor(mac_prefix);
 
     if (vendor)
     {
@@ -333,7 +310,7 @@ static bool ff_eth_dst_mac(const Args &a)
         mac_prefix |= static_cast<uint64_t>(eh->ether_dst[i]);
     }
 
-    const char *vendor = MacVendorDB.find_mac_vendor(mac_prefix);
+    const char *vendor = MacVendorDB().find_mac_vendor(mac_prefix);
 
     if (vendor)
     {
@@ -900,7 +877,7 @@ static const JsonFunc json_func[] =
         ff_server_pkts, ff_service, ff_sgt, ff_sig_id, ff_src_ap, ff_src_port,
         ff_target, ff_tcp_ack, ff_tcp_flags, ff_tcp_len, ff_tcp_seq, ff_tcp_win,
         ff_tos, ff_ttl, ff_udplen, ff_ethlength_range, ff_vlan, ff_src_country, ff_dst_country, ff_src_country_code,
-        ff_dst_country_code, ff_priority
+        ff_dst_country_code
     };
 
 #define json_range                                                                               \
@@ -912,7 +889,7 @@ static const JsonFunc json_func[] =
     "server_pkts | service | sgt | sig_id | src_ap | src_port | "                                \
     "target | tcp_ack | tcp_flags | tcp_len | tcp_seq | tcp_win | "                              \
     "tos | ttl | udplen | ethlength_range | vlan | src_country | dst_country | "                 \
-    "src_country_code | dst_country_code | priority "
+    "src_country_code | dst_country_code "
 
 #define json_deflt \
     "pkt_num proto pkt_gen pkt_len dir src_ap dst_ap action"
@@ -1088,11 +1065,15 @@ private:
     string geoip_db;
     vector<JsonFunc> fields;
     Enrichment enrichment;
-    rd_kafka_t *rk;
-    rd_kafka_conf_t *conf;
-    rd_kafka_topic_t *rkt;
+    thread_local static rd_kafka_t *rk;
+    thread_local static rd_kafka_conf_t *conf;
+    thread_local static rd_kafka_topic_t *rkt;
     char errstr[512];
 };
+
+thread_local rd_kafka_t *KafkaLogger::rk = nullptr;
+thread_local rd_kafka_conf_t *KafkaLogger::conf = nullptr;
+thread_local rd_kafka_topic_t *KafkaLogger::rkt = nullptr;
 
 KafkaLogger::KafkaLogger(KafkaModule *m)
 {
@@ -1101,9 +1082,6 @@ KafkaLogger::KafkaLogger(KafkaModule *m)
     fields = move(m->fields);
     fields.push_back(AddTimestampField);
     broker_host = m->broker_host;
-    rk = nullptr;
-    conf = rd_kafka_conf_new();
-    rkt = nullptr;
     sensor_uuid = m->sensor_uuid;
     sensor_type = m->sensor_type;
     sensor_name = m->sensor_name;
@@ -1122,6 +1100,7 @@ KafkaLogger::KafkaLogger(KafkaModule *m)
 
 void KafkaLogger::open()
 {
+    conf = rd_kafka_conf_new();
     if (conf == nullptr)
     {
         throw runtime_error("Failed to create Kafka configuration");
@@ -1146,7 +1125,7 @@ void KafkaLogger::open()
         throw runtime_error("Failed to create Kafka topic: " + string(rd_kafka_err2str(rd_kafka_last_error())));
     }
 
-    MacVendorDB.insert_mac_vendors_from_file(mac_vendors.c_str());
+    MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 }
 
 void KafkaLogger::close()
@@ -1161,6 +1140,9 @@ void KafkaLogger::close()
     {
         rd_kafka_flush(rk, 10000);
         rd_kafka_destroy(rk);
+    }
+    if (_MacVendorDB) {
+        _MacVendorDB.reset();
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
 }
@@ -1190,9 +1172,9 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
         {
             fprintf(stderr, "Failed to send event to Kafka: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
         }
+        free(json_event);
     }
 
-    free(json_event);
     rd_kafka_poll(rk, 0);
 }
 

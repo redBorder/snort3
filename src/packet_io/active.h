@@ -142,6 +142,13 @@ public:
     bool packet_would_be_allowed() const
     { return active_status == AST_ALLOW;}
 
+    const char* get_real_action_string() const {
+        if(packet_was_dropped()) return "drop";
+        if(packet_would_be_dropped()) return "should_drop";
+        if(packet_cant_be_dropped()) return "cant_drop";
+        if(packet_would_be_allowed()) return "alert";
+        return "log";
+    }
     ActiveWouldReason get_would_be_dropped_reason() const
     { return active_would_reason; }
 
