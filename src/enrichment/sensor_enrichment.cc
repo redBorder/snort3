@@ -18,8 +18,6 @@
 // sensor_enrichment.cc author Miguel Álvarez <malvarez@redborder.com>
 
 #include <iostream>
-#include <utility>
-#include <vector>
 #include "enrichment/sensor_enrichment.h"
 #include "sensor_enrichment.h"
 
