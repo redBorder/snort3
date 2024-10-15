@@ -902,28 +902,13 @@ static const Parameter s_params[] =
         {"broker_host", Parameter::PT_STRING, nullptr, "kafka.service",
          "Kafka broker host"},
 
-        {"sensor_uuid", Parameter::PT_STRING, nullptr, "sensor_uuid",
-         "Sensor uuid"},
+        {"enrichment", Parameter::PT_STRING, nullptr, nullptr,
+         "JSON enrichment object"},
 
-        {"sensor_type", Parameter::PT_STRING, nullptr, "sensor_type",
-         "Sensor type"},
-
-        {"sensor_id_snort", Parameter::PT_STRING, nullptr, "sensor_id_snort",
-         "Sensor binding id"},
-
-        {"sensor_name", Parameter::PT_STRING, nullptr, "sensor_name",
-         "Sensor name"},
-
-        {"sensor_ip", Parameter::PT_STRING, nullptr, "sensor_ip",
-         "Sensor ip"},
-
-        {"group_name", Parameter::PT_STRING, nullptr, "group_name",
+        {"mac_vendors", Parameter::PT_STRING, nullptr, nullptr,
          "Snort group name"},
 
-        {"mac_vendors", Parameter::PT_STRING, nullptr, "/path/to/mac_vendors",
-         "Snort group name"},
-
-        {"geoip_db", Parameter::PT_STRING, nullptr, "/path/to/db",
+        {"geoip_db", Parameter::PT_STRING, nullptr, nullptr,
          "geoip database"},
 
         {"fields", Parameter::PT_MULTI, json_range, json_deflt,
@@ -954,12 +939,7 @@ public:
     string sep;
     string topic;
     string broker_host;
-    string sensor_uuid;
-    string sensor_type;
-    string sensor_name;
-    string sensor_ip;
-    string sensor_id_snort;
-    string group_name;
+    string enrichment;
     string mac_vendors;
     string geoip_db;
     vector<JsonFunc> fields;
@@ -990,23 +970,8 @@ bool KafkaModule::set(const char *, Value &v, SnortConfig *)
     else if (v.is("separator"))
         sep = v.get_string();
 
-    else if (v.is("sensor_uuid"))
-        sensor_uuid = v.get_string();
-
-    else if (v.is("sensor_type"))
-        sensor_type = v.get_string();
-
-    else if (v.is("sensor_id_snort"))
-        sensor_id_snort = v.get_string();
-
-    else if (v.is("sensor_ip"))
-        sensor_ip = v.get_string();
-
-    else if (v.is("sensor_name"))
-        sensor_name = v.get_string();
-
-    else if (v.is("group_name"))
-        group_name = v.get_string();
+    else if (v.is("enrichment"))
+        enrichment = v.get_string();
 
     else if (v.is("mac_vendors"))
         mac_vendors = v.get_string();
@@ -1055,16 +1020,11 @@ private:
     string topic;
     string broker_host;
     string sep;
-    string sensor_uuid;
-    string sensor_type;
-    string sensor_name;
-    string sensor_ip;
-    string sensor_id_snort;
     string group_name;
     string mac_vendors;
     string geoip_db;
     vector<JsonFunc> fields;
-    Enrichment enrichment;
+    string enrichment;
     thread_local static rd_kafka_t *rk;
     thread_local static rd_kafka_conf_t *conf;
     thread_local static rd_kafka_topic_t *rkt;
@@ -1079,53 +1039,25 @@ KafkaLogger::KafkaLogger(KafkaModule *m)
 {
     topic = m->topic;
     sep = m->sep;
+    enrichment = m->enrichment;
     fields = move(m->fields);
     fields.push_back(AddTimestampField);
     broker_host = m->broker_host;
-    sensor_uuid = m->sensor_uuid;
-    sensor_type = m->sensor_type;
-    sensor_name = m->sensor_name;
-    sensor_ip = m->sensor_ip;
-    sensor_id_snort = m->sensor_id_snort;
-    group_name = m->group_name;
     mac_vendors = m->mac_vendors;
     geoip_db = m->geoip_db;
-    enrichment.sensor_uuid = sensor_uuid.c_str();
-    enrichment.sensor_type = sensor_type.c_str();
-    enrichment.sensor_name = sensor_name.c_str();
-    enrichment.sensor_ip = sensor_ip.c_str();
-    enrichment.sensor_id_snort = sensor_id_snort.c_str();
-    enrichment.group_name = group_name.c_str();
 }
 
 void KafkaLogger::open()
 {
     conf = rd_kafka_conf_new();
-    if (conf == nullptr)
-    {
-        throw runtime_error("Failed to create Kafka configuration");
-    }
-    if (rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK)
-    {
-        throw runtime_error("Failed to configure Kafka producer: " + string(errstr));
-    }
-
+    rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr));
     json_log = BinaryWriter_Init(LOG_BUFFER);
-    GeoIpLoader::Manager::getInstance(geoip_db);
+
+    if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
+    if(mac_vendors.length() > 0) MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 
     rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
-    if (!rk)
-    {
-        throw runtime_error("Failed to create Kafka producer: " + string(errstr));
-    }
-
     rkt = rd_kafka_topic_new(rk, topic.c_str(), nullptr);
-    if (!rkt)
-    {
-        throw runtime_error("Failed to create Kafka topic: " + string(rd_kafka_err2str(rd_kafka_last_error())));
-    }
-
-    MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 }
 
 void KafkaLogger::close()
@@ -1157,7 +1089,8 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
         a.comma = true;
     }
 
-    SensorEnrichment::EnrichJsonLog(json_log, enrichment);
+    if(enrichment.length() > 0) SensorEnrichment::EnrichJsonLog(json_log, enrichment);
+
     BinaryWriter_Print(json_log, " }");
 
     char *json_event = BinaryWriter_FlushToString(json_log);
@@ -1170,7 +1103,6 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
                 json_event, json_event_size,
                 nullptr, 0, nullptr) == -1)
         {
-            fprintf(stderr, "Failed to send event to Kafka: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
         }
         free(json_event);
     }

@@ -25,7 +25,7 @@
 
 class SensorEnrichment {
 public:
-    static void EnrichJsonLog(BinaryWriter* writer, const Enrichment& enrichment);
+    static void EnrichJsonLog(BinaryWriter *writer, const std::string &enrichment);
 };
 
 #endif // SENSOR_ENRICHMENT_H

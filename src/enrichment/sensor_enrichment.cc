@@ -17,35 +17,19 @@
 //--------------------------------------------------------------------------
 // sensor_enrichment.cc author Miguel Álvarez <malvarez@redborder.com>
 
-#include "enrichment/sensor_enrichment.h"
+#include <iostream>
 #include <utility>
+#include <vector>
+#include "enrichment/sensor_enrichment.h"
+#include "sensor_enrichment.h"
 
-void SensorEnrichment::EnrichJsonLog(BinaryWriter* writer, const Enrichment& enrichment) {
-    const std::pair<const char*, const char*> params[] = {
-        {"sensor_uuid", enrichment.sensor_uuid},
-        {"sensor_name", enrichment.sensor_name},
-        {"sensor_type", enrichment.sensor_type},
-        {"sensor_ip", enrichment.sensor_ip},
-        {"group_name", enrichment.group_name}
-    };
-    
-    for (const auto& param : params) {
-        if (param.second && param.second[0] != '\0') {
-            BinaryWriter_WriteString(writer, ", ");
-            BinaryWriter_Putc(writer, '"');
-            BinaryWriter_WriteString(writer, param.first);
-            BinaryWriter_Putc(writer, '"');
-            BinaryWriter_WriteString(writer, ": \"");
-            BinaryWriter_WriteString(writer, param.second);
-            BinaryWriter_Putc(writer, '"');
-        }
-    }
+using namespace std;
 
+void SensorEnrichment::EnrichJsonLog(BinaryWriter* writer, const std::string& enrichment) {
     BinaryWriter_WriteString(writer, ", ");
-    BinaryWriter_Putc(writer, '"');
-    BinaryWriter_WriteString(writer, "sensor_id_snort");
-    BinaryWriter_Putc(writer, '"');
-    BinaryWriter_WriteString(writer, ": ");
-    BinaryWriter_WriteString(writer, enrichment.sensor_id_snort);
-
+    if (enrichment.length() > 1) {
+        BinaryWriter_WriteString(writer, enrichment.substr(1, enrichment.length() - 2).c_str());
+    } else {
+        BinaryWriter_WriteString(writer, "");
+    }
 }
