@@ -53,8 +53,8 @@ using namespace std;
 #define LOG_BUFFER (4 * K_BYTES)
 
 static THREAD_LOCAL BinaryWriter *json_log;
+static THREAD_LOCAL MacVendorDatabase MacVendorDB;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
-MacVendorDatabase MacVendorDB;
 
 #define S_NAME "alert_kafka"
 #define D_TOPIC "rb_event"
