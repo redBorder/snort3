@@ -1,4 +1,4 @@
-PACKAGE_NAME?=	snort
+PACKAGE_NAME?=	snort3
 
 VERSION?=	$(shell git describe --abbrev=6 --tags HEAD --always | sed 's/-/_/g')
 

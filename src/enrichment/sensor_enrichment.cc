@@ -23,7 +23,7 @@
 
 using namespace std;
 
-void SensorEnrichment::EnrichJsonLog(BinaryWriter* writer, const std::string& enrichment) {
+void SensorEnrichment::EnrichJsonLog(BinaryWriter* writer, const string& enrichment) {
     BinaryWriter_WriteString(writer, ", ");
     if (enrichment.length() > 1) {
         BinaryWriter_WriteString(writer, enrichment.substr(1, enrichment.length() - 2).c_str());
