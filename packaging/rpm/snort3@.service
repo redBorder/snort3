@@ -1,0 +1,25 @@
+[Unit]
+Description=Snort 3 Network Intrusion Detection System (instance %i)
+After=network.target
+
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/snort/%i/env
+ExecStart=/usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -A alert_kafka -z ${THREADS}
+CPUAffinity=$CPU_CORES
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+~                                                                                                                                                                                                                                             
+~                                                                                                                                                                                                                                             
+~                                                                                                                                                                                                                                             
+~                                                                                                                                                                                                                                             
+~                                             

@@ -94,6 +94,7 @@ cd ./build
 %{__mkdir_p} $RPM_BUILD_ROOT%{SnortRulesDir}
 %{__mv} $RPM_BUILD_ROOT%{_docdir}/snort $RPM_BUILD_ROOT%{_docdir}/snort-%{version}
 %{__mkdir_p} $RPM_BUILD_ROOT%{_var}/log/snort
+%{__install} -p -m 0644 packaging/rpm/snort3@.service $RPM_BUILD_ROOT/usr/lib/systemd/system/snort3@.service
 
 
 %clean
