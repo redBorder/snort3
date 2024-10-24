@@ -94,7 +94,7 @@ cd ./build
 %{__mkdir_p} $RPM_BUILD_ROOT%{SnortRulesDir}
 %{__mv} $RPM_BUILD_ROOT%{_docdir}/snort $RPM_BUILD_ROOT%{_docdir}/snort-%{version}
 %{__mkdir_p} $RPM_BUILD_ROOT%{_var}/log/snort
-%{__install} -p -m 0644 packaging/rpm/snort3@.service $RPM_BUILD_ROOT/usr/lib/systemd/system/snort3@.service
+install -D -m 0644 systemd/snort3@.service %{buildroot}/usr/lib/systemd/system/snort3@.service
 
 
 %clean
@@ -130,6 +130,8 @@ fi
 %attr(0755,root,root) %dir %{SnortRulesDir}
 %attr(0644,root,root) %{_includedir}/snort/lua/*.lua
 %attr(0755,snort,snort) %dir %{_var}/log/snort
+%attr(0644,snort,snort) /usr/lib/systemd/system/snort3@.service
+
 %doc %{_docdir}/snort-%{version}
 
 %files devel
