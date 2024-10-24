@@ -94,7 +94,7 @@ cd ./build
 %{__mkdir_p} $RPM_BUILD_ROOT%{SnortRulesDir}
 %{__mv} $RPM_BUILD_ROOT%{_docdir}/snort $RPM_BUILD_ROOT%{_docdir}/snort-%{version}
 %{__mkdir_p} $RPM_BUILD_ROOT%{_var}/log/snort
-install -D -m 0644 systemd/snort3@.service %{buildroot}/usr/lib/systemd/system/snort3@.service
+install -D -m 0644 ../systemd/snort3@.service %{buildroot}/usr/lib/systemd/system/snort3@.service
 
 
 %clean
@@ -107,6 +107,9 @@ if [ $1 = 1 ] ; then
 	/usr/sbin/groupadd snort 2> /dev/null || true
 	/usr/sbin/useradd -M -d %{_var}/log/snort -s %{noShell} -c "snort" -g snort snort 2>/dev/null || true
 fi
+
+%post
+systemctl daemon-reload
 
 %postun
 # Only do this if we are actually removing snort
