@@ -883,6 +883,9 @@ bool SnortModule::set(const char*, Value& v, SnortConfig* sc)
 
     else if ( is(v, "--alert-before-pass") )
         sc->set_alert_before_pass(true);
+    
+    else if ( is(v, "--treat-drop-as-alert") )
+        sc->set_drop_as_alert(true);
 
     else if ( is(v, "--bpf") )
         sc->bpf_filter = v.get_string();

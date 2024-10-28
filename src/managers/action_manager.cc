@@ -66,6 +66,7 @@ static ACList s_actors;
 static ACTypeList s_act_types;
 static ACPriorityList s_act_priorities;
 static IpsAction::Type s_act_index = 0;
+static bool THREAD_LOCAL g_drop_as_alert = false;
 
 static THREAD_LOCAL ACList* s_tl_actors = nullptr;
 
@@ -83,12 +84,15 @@ void ActionManager::add_plugin(const ActionApi* api)
 
 std::string ActionManager::get_action_string(IpsAction::Type action)
 {
+    std::string result;
     if ( action < s_act_index )
     {
         auto it = std::find_if(s_act_types.cbegin(), s_act_types.cend(),
             [action](const std::pair<const std::string, IpsAction::Type>& type){ return type.second == action; });
         if ( it != s_act_types.cend())
-            return (*it).first;
+            result = (*it).first;
+            if(g_drop_as_alert) return "alert";
+            return result;
     }
 
     return "ERROR";
@@ -207,6 +211,8 @@ void ActionManager::instantiate(const ActionApi* api, Module* mod, SnortConfig* 
     assert(cls != nullptr);
 
     IpsAction* act = cls->api->ctor(mod);
+
+    g_drop_as_alert = sc->drop_as_alert();
 
     if ( act )
     {

@@ -69,6 +69,7 @@ enum RunFlag
     RUN_FLAG__TRACK_ON_SYN        = 0x00100000,
     RUN_FLAG__IP_FRAGS_ONLY       = 0x00200000,
     RUN_FLAG__TEST_FEATURES       = 0x00400000,
+    RUN_FLAG__DROP_AS_ALERT       = 0x00800000
 
 #ifdef SHELL
     RUN_FLAG__SHELL               = 0x01000000,
@@ -442,7 +443,8 @@ public:
     void add_script_path(const char*);
     void enable_syslog();
     void set_alert_before_pass(bool);
-    void set_alert_mode(const char*);
+    void set_drop_as_alert(bool);
+    void set_alert_mode(const char *);
     void set_chroot_dir(const char*);
     void set_create_pid_file(bool);
     void set_daemon(bool);
@@ -598,6 +600,9 @@ public:
 
     bool alert_before_pass() const
     { return run_flags & RUN_FLAG__ALERT_BEFORE_PASS; }
+
+    bool drop_as_alert() const
+    { return run_flags & RUN_FLAG__DROP_AS_ALERT; }
 
     bool no_pcre() const
     { return run_flags & RUN_FLAG__NO_PCRE; }

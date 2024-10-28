@@ -540,6 +540,14 @@ void SnortConfig::set_alert_before_pass(bool enabled)
         run_flags &= ~RUN_FLAG__ALERT_BEFORE_PASS;
 }
 
+void SnortConfig::set_drop_as_alert(bool enabled)
+{
+    if (enabled)
+        run_flags |= RUN_FLAG__DROP_AS_ALERT;
+    else
+        run_flags &= ~RUN_FLAG__DROP_AS_ALERT;
+}
+
 void SnortConfig::set_chroot_dir(const char* directory)
 {
     if (directory)
