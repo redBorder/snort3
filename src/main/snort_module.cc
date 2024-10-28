@@ -356,6 +356,9 @@ static const Parameter s_params[] =
     { "--alert-before-pass", Parameter::PT_IMPLIED, nullptr, nullptr,
       "evaluate alert rules before pass rules; default is pass rules first" },
 
+    { "--treat-drop-as-alert", Parameter::PT_IMPLIED, nullptr, nullptr,
+      "Change regular drop to alert in log" },
+
     { "--bpf", Parameter::PT_STRING, nullptr, nullptr,
       "<filter options> are standard BPF options, as seen in TCPDump" },
 
