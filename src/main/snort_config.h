@@ -69,7 +69,7 @@ enum RunFlag
     RUN_FLAG__TRACK_ON_SYN        = 0x00100000,
     RUN_FLAG__IP_FRAGS_ONLY       = 0x00200000,
     RUN_FLAG__TEST_FEATURES       = 0x00400000,
-    RUN_FLAG__DROP_AS_ALERT       = 0x00800000
+    RUN_FLAG__DROP_AS_ALERT       = 0x00800000,
 
 #ifdef SHELL
     RUN_FLAG__SHELL               = 0x01000000,
