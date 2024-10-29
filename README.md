@@ -28,7 +28,7 @@ below:
     
 Here are some key features of Snort++ developed by redBorder:
 * new plugin `alert_kafka` to send alerts to kafka in json format.
-* --treat-drop-as-alert option bring backs the --treat-drop-as-alert option in snort2
+* `--treat-drop-as-alert` option bring backs the `--treat-drop-as-alert` option in `snort2`
 * GeoIP and MacVendor enrinchment for alert_kafka plugin
 * extra data enrinchment for alert_kafka
 
