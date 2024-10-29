@@ -32,6 +32,9 @@ Here are some key features of Snort++ developed by redBorder:
 * GeoIP and MacVendor enrinchment for alert_kafka plugin
 * extra data enrinchment for alert_kafka
 
+Additional features on the roadmap include:
+* Country based reputation
+
 Here are some key features of Snort++:
 
 * Support multiple packet processing threads
