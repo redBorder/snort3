@@ -95,7 +95,10 @@ public:
     { return active_status == AST_ALLOW or active_status == AST_FORCE; }
 
     const char* get_action_string() const
-    { return act_str[active_action][active_status]; }
+    {
+        if(packet_drop_as_alert() && (packet_was_dropped() || packet_would_be_dropped())) return "allow";
+        return act_str[active_action][active_status];
+    }
 
     const char* get_delayed_action_string() const
     { return act_str[delayed_active_action][active_status]; }
@@ -142,13 +145,18 @@ public:
     bool packet_would_be_allowed() const
     { return active_status == AST_ALLOW;}
 
+    bool packet_drop_as_alert() const 
+    { return threat_drop_as_alert; }
+
     const char* get_real_action_string() const {
+        if(packet_drop_as_alert() && (packet_was_dropped() || packet_would_be_dropped())) return "alert";
         if(packet_was_dropped()) return "drop";
         if(packet_would_be_dropped()) return "should_drop";
         if(packet_cant_be_dropped()) return "cant_drop";
         if(packet_would_be_allowed()) return "alert";
         return "log";
     }
+
     ActiveWouldReason get_would_be_dropped_reason() const
     { return active_would_reason; }
 
@@ -217,9 +225,9 @@ private:
 
 private:
     static const char* act_str[ACT_MAX][AST_MAX];
-
     int active_tunnel_bypass = 0;
     const char* drop_reason = nullptr;
+    bool threat_drop_as_alert = false;
 
     // these can't be pkt flags because we do the handling
     // of these flags following all processing and the drop
