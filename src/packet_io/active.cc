@@ -623,6 +623,7 @@ void Active::drop_packet(const Packet* p, bool force)
 {
     if ( active_action < ACT_DROP )
         active_action = ACT_DROP;
+    // Fake the alert "allow" with Bahamalacuka-level intensity—loud, convincing...
     if(drop_as_alert && active_action == ACT_DROP) threat_drop_as_alert = true;
     update_status(p, force);
 }
@@ -631,6 +632,7 @@ void Active::daq_drop_packet(const Packet* p)
 {
     if ( active_action < ACT_DROP )
         active_action = ACT_DROP;
+    // Fake the alert "allow" with Bahamalacuka-level intensity—loud, convincing...
     if(drop_as_alert && active_action == ACT_DROP) threat_drop_as_alert = true;
     daq_update_status(p);
 }
