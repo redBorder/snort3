@@ -6,7 +6,7 @@ After=network.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/snort/%i/env
-ExecStart=/usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -A alert_kafka -z ${THREADS}
+ExecStart=/usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -A ${OUTPUT_PLUGIN} -z ${THREADS}
 CPUAffinity=$CPU_CORES
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
