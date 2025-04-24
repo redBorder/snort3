@@ -12,6 +12,7 @@ set (PLUGIN_LIST
     alert_full.cc
     alert_json.cc
     alert_kafka.cc
+    alert_http.cc
     alert_syslog.cc
     alert_talos.cc
     alert_unixsock.cc
@@ -35,6 +36,7 @@ else (STATIC_LOGGERS)
 
     add_dynamic_module(alert_csv loggers alert_csv.cc)
     add_dynamic_module(alert_fast loggers alert_fast.cc)
+    add_dynamic_module(alert_http loggers alert_http.cc)
     add_dynamic_module(alert_full loggers alert_full.cc)
     add_dynamic_module(alert_json loggers alert_json.cc)
     add_dynamic_module(alert_kafka loggers alert_kafka.cc)
