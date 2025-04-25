@@ -74,7 +74,8 @@ Development tools for Snort
 #%{__sed} -i -r -e '/-DCMAKE_EXPORT_COMPILE_COMMANDS/ a -DLIBLZMA_LIBRARIES=/usr/lib64/liblzma.so.5 \\' ./configure_cmake.sh
 CFLAGS="$RPM_OPT_FLAGS"
 export AM_CFLAGS="-g -O2"
-./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell
+export LDFLAGS="-Wl,--copy-dt-needed-entries"
+./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell --with-cpr-includes=/usr/local/include/cpr/
 # --disable-gdb
 cd ./build
 %{make_build} VERBOSE=1

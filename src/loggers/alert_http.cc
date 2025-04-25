@@ -15,7 +15,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //--------------------------------------------------------------------------
 
-// alert_kafka.cc author Miguel Álvarez <malvarez@redborder.com>
+// alert_http.cc author Miguel Álvarez <malvarez@redborder.com>
 
 // preliminary version based on hacking up alert_json.cc and putting data into a buffer for sending to kafka
 
