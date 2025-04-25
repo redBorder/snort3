@@ -57,13 +57,13 @@ using namespace std;
 static THREAD_LOCAL BinaryWriter *json_log;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
 
-thread_local std::unique_ptr<MacVendorDatabase> _MacVendorDB = nullptr;
+thread_local std::unique_ptr<MacVendorDatabase> _HTTPMacVendorDB = nullptr;
 
-MacVendorDatabase& MacVendorDB() {
-    if (!_MacVendorDB) {
-        _MacVendorDB = std::make_unique<MacVendorDatabase>();
+MacVendorDatabase& HTTPMacVendorDB() {
+    if (!_HTTPMacVendorDB) {
+        _HTTPMacVendorDB = std::make_unique<MacVendorDatabase>();
     }
-    return *_MacVendorDB;
+    return *_HTTPMacVendorDB;
 }
 
 #define S_NAME "alert_http"
@@ -266,7 +266,7 @@ static bool ff_eth_src_mac(const Args &a)
         mac_prefix |= static_cast<uint64_t>(eh->ether_src[i]);
     }
 
-    const char *vendor = MacVendorDB().find_mac_vendor(mac_prefix);
+    const char *vendor = HTTPMacVendorDB().find_mac_vendor(mac_prefix);
 
     if (vendor)
     {
@@ -311,7 +311,7 @@ static bool ff_eth_dst_mac(const Args &a)
         mac_prefix |= static_cast<uint64_t>(eh->ether_dst[i]);
     }
 
-    const char *vendor = MacVendorDB().find_mac_vendor(mac_prefix);
+    const char *vendor = HTTPMacVendorDB().find_mac_vendor(mac_prefix);
 
     if (vendor)
     {
@@ -1042,7 +1042,7 @@ void HTTPLogger::open()
     json_log = BinaryWriter_Init(LOG_BUFFER);
 
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
-    if(mac_vendors.length() > 0) MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
+    if(mac_vendors.length() > 0) HTTPMacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 
 }
 
@@ -1051,8 +1051,8 @@ void HTTPLogger::close()
     if (json_log)
         BinaryWriter_Term(json_log);
     
-    if (_MacVendorDB) {
-        _MacVendorDB.reset();
+    if (_HTTPMacVendorDB) {
+        _HTTPMacVendorDB.reset();
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
 }
@@ -1101,17 +1101,17 @@ static void mod_dtor(Module *m)
     delete m;
 }
 
-static Logger *kafka_ctor(Module *mod)
+static Logger *http_ctor(Module *mod)
 {
     return new HTTPLogger((HTTPModule *)mod);
 }
 
-static void kafka_dtor(Logger *p)
+static void http_dtor(Logger *p)
 {
     delete p;
 }
 
-static LogApi kafka_api{
+static LogApi http_api{
     {PT_LOGGER,
      sizeof(LogApi),
      LOGAPI_VERSION,
@@ -1123,8 +1123,8 @@ static LogApi kafka_api{
      mod_ctor,
      mod_dtor},
     OUTPUT_TYPE_FLAG__ALERT,
-    kafka_ctor,
-    kafka_dtor};
+    http_ctor,
+    http_dtor};
 
 #ifdef BUILDING_SO
 SO_PUBLIC const BaseApi *snort_plugins[] =
@@ -1132,5 +1132,5 @@ SO_PUBLIC const BaseApi *snort_plugins[] =
 const BaseApi *alert_kafka[] =
 #endif
     {
-        &kafka_api.base,
+        &http_api.base,
         nullptr};
