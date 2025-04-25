@@ -1129,7 +1129,7 @@ static LogApi http_api{
 #ifdef BUILDING_SO
 SO_PUBLIC const BaseApi *snort_plugins[] =
 #else
-const BaseApi *alert_kafka[] =
+const BaseApi *alert_http[] =
 #endif
     {
         &http_api.base,
