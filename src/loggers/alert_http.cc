@@ -23,6 +23,7 @@
 #include "config.h"
 #endif
 
+#include <cpr/cpr.h>
 #include "geoip/rbgeoip.h"
 #include "macs/mac_vendors.h"
 #include "detection/detection_engine.h"
@@ -35,8 +36,6 @@
 #include "log/log.h"
 #include "log/log_text.h"
 #include "log/binary_log.h"
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 #include "packet_io/active.h"
 #include "packet_io/sfdaq.h"
 #include "protocols/cisco_meta_data.h"
@@ -68,145 +67,6 @@ MacVendorDatabase& HTTPMacVendorDB() {
 }
 
 #define S_NAME "alert_http"
-
-
-// RAII socket wrapper
-class Socket {
-    int fd_;
-public:
-    explicit Socket(int fd) : fd_(fd) {
-        if (fd_ < 0) throw std::runtime_error("Invalid socket");
-    }
-    ~Socket() {
-        if (fd_ >= 0) close(fd_);
-    }
-    Socket(const Socket&) = delete;
-    Socket& operator=(const Socket&) = delete;
-    Socket(Socket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
-    Socket& operator=(Socket&& o) noexcept {
-        if (this != &o) {
-            if (fd_ >= 0) close(fd_);
-            fd_ = o.fd_;
-            o.fd_ = -1;
-        }
-        return *this;
-    }
-    int fd() const { return fd_; }
-};
-
-static std::tuple<bool/*is_https*/,std::string/*host*/,std::string/*port*/,std::string/*path*/>
-parse_url(const std::string& url) {
-    bool https = false;
-    std::string rem;
-    if (url.rfind("https://",0)==0) {
-        https = true;
-        rem = url.substr(8);
-    }
-    else if (url.rfind("http://",0)==0) {
-        rem = url.substr(7);
-    }
-    else {
-        throw std::invalid_argument("URL must start with http:// or https://");
-    }
-    auto slash = rem.find('/');
-    std::string hostport = rem.substr(0, slash);
-    std::string path     = slash==std::string::npos ? "/" : rem.substr(slash);
-
-    auto colon = hostport.find(':');
-    std::string host = hostport.substr(0, colon);
-    std::string port = colon==std::string::npos
-                     ? (https ? "443" : "80")
-                     : hostport.substr(colon+1);
-
-    return {https, host, port, path};
-}
-
-static Socket connect_tcp(const std::string& host, const std::string& port) {
-    struct addrinfo hints{}, *res, *rp;
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    if (int err = getaddrinfo(host.c_str(), port.c_str(), &hints, &res))
-        throw std::runtime_error("getaddrinfo: " + std::string(gai_strerror(err)));
-    Socket sock(-1);
-    for (rp = res; rp; rp = rp->ai_next) {
-        int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (fd < 0) continue;
-        if (connect(fd, rp->ai_addr, rp->ai_addrlen)==0) {
-            sock = Socket(fd);
-            break;
-        }
-        close(fd);
-    }
-    freeaddrinfo(res);
-    if (sock.fd() < 0)
-        throw std::runtime_error("Cannot connect to " + host + ":" + port);
-    return sock;
-}
-
-static SSL_CTX* get_ssl_ctx() {
-    static SSL_CTX* ctx = []{
-        SSL_library_init();
-        SSL_load_error_strings();
-        OpenSSL_add_all_algorithms();
-        SSL_CTX* c = SSL_CTX_new(TLS_client_method());
-        if (!c) throw std::runtime_error("SSL_CTX_new failed");
-        return c;
-    }();
-    return ctx;
-}
-
-static std::string http_post(const std::string& url,
-                             const std::string& body)
-{
-    auto [is_https, host, port, path] = parse_url(url);
-    Socket sock = connect_tcp(host, port);
-
-    SSL* ssl = nullptr;
-    if (is_https) {
-        SSL_CTX* ctx = get_ssl_ctx();
-        ssl = SSL_new(ctx);
-        SSL_set_tlsext_host_name(ssl, host.c_str());
-        SSL_set_fd(ssl, sock.fd());
-        if (SSL_connect(ssl) <= 0)
-            throw std::runtime_error("SSL_connect failed");
-    }
-
-    std::ostringstream req;
-    req << "POST " << path << " HTTP/1.1\r\n"
-        << "Host: " << host << "\r\n"
-        << "User-Agent: HTTPLogger/1.0\r\n"
-        << "Content-Type: application/json\r\n"
-        << "Content-Length: " << body.size() << "\r\n"
-        << "Connection: close\r\n\r\n"
-        << body;
-    std::string req_str = req.str();
-
-    size_t total = req_str.size(), sent = 0;
-    while (sent < total) {
-        ssize_t n = is_https
-                  ? SSL_write(ssl, req_str.data() + sent, total - sent)
-                  : ::send(sock.fd(), req_str.data() + sent, total - sent, 0);
-        if (n <= 0)
-            throw std::runtime_error("Send failed");
-        sent += n;
-    }
-
-    std::string resp;
-    char buf[4096];
-    while (true) {
-        ssize_t n = is_https
-                  ? SSL_read(ssl, buf, sizeof(buf))
-                  : ::recv(sock.fd(), buf, sizeof(buf), 0);
-        if (n <= 0) break;
-        resp.append(buf, n);
-    }
-
-    if (ssl) {
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-    }
-    return resp;
-}
 
 //-------------------------------------------------------------------------
 // field formatting functions
@@ -1215,14 +1075,14 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     if (json_event)
     {
         size_t json_event_size = strlen(json_event);
-        try {
-            std::string body{json_event};
-            free(json_event);
-            std::string server_reply = http_post(http_endpoint, body, verify_ssl);
-        }
-        catch (const std::exception &ex) {
-            std::cerr << "[HTTPLogger ERROR] " << ex.what() << "\n";
-        }
+
+        cpr::Response response = cpr::Post(
+            cpr::Url{http_endpoint},
+            cpr::Body{json_event},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::VerifySsl(verify_ssl)
+        );
+
         free(json_event);
     }
 }   
