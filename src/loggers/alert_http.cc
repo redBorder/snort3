@@ -17,7 +17,7 @@
 
 // alert_http.cc author Miguel Álvarez <malvarez@redborder.com>
 
-// preliminary version based on hacking up alert_json.cc and putting data into a buffer for sending to kafka
+// preliminary version based on hacking up alert_json.cc and putting data into a buffer for sending to http
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
