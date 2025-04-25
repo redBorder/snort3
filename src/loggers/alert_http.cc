@@ -23,7 +23,6 @@
 #include "config.h"
 #endif
 
-#include <cpr/cpr.h>
 #include "geoip/rbgeoip.h"
 #include "macs/mac_vendors.h"
 #include "detection/detection_engine.h"
@@ -68,6 +67,117 @@ MacVendorDatabase& HTTPMacVendorDB() {
 
 #define S_NAME "alert_http"
 
+
+class Socket {
+    int fd_;
+public:
+    explicit Socket(int fd) : fd_(fd) {
+        if (fd_ < 0) throw std::runtime_error("Invalid socket descriptor");
+    }
+    ~Socket() {
+        if (fd_ >= 0) close(fd_);
+    }
+    Socket(const Socket&) = delete;
+    Socket& operator=(const Socket&) = delete;
+    Socket(Socket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
+    Socket& operator=(Socket&& o) noexcept {
+        if (this != &o) {
+            if (fd_ >= 0) close(fd_);
+            fd_ = o.fd_;
+            o.fd_ = -1;
+        }
+        return *this;
+    }
+    int fd() const { return fd_; }
+};
+
+static Socket connect_tcp(const std::string& host, const std::string& port) {
+    struct addrinfo hints{}, *res, *rp;
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if (int err = getaddrinfo(host.c_str(), port.c_str(), &hints, &res); err)
+        throw std::runtime_error("getaddrinfo: " + std::string(gai_strerror(err)));
+
+    Socket sock(-1);
+    for (rp = res; rp; rp = rp->ai_next) {
+        int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) continue;
+        try {
+            if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+                sock = Socket(fd);
+                break;
+            }
+        } catch (...) {
+            close(fd);
+            throw;
+        }
+        close(fd);
+    }
+    freeaddrinfo(res);
+    if (sock.fd() < 0)
+        throw std::runtime_error("Could not connect to " + host + ":" + port);
+    return sock;
+}
+
+static std::tuple<std::string,std::string,std::string>
+parse_http_url(const std::string& url) {
+    const std::string prefix = "http://";
+    if (url.rfind(prefix, 0) != 0)
+        throw std::invalid_argument("URL must start with http://");
+
+    auto rem = url.substr(prefix.size());
+    auto slash_pos = rem.find('/');
+    std::string hostport = rem.substr(0, slash_pos);
+    std::string path     = slash_pos == std::string::npos ? "/" : rem.substr(slash_pos);
+
+    auto colon_pos = hostport.find(':');
+    std::string host = hostport.substr(0, colon_pos);
+    std::string port = colon_pos == std::string::npos
+                       ? "80"
+                       : hostport.substr(colon_pos + 1);
+
+    return {host, port, path};
+}
+
+static std::string http_post(const std::string& url,
+                             const std::string& body,
+                             bool verify_ssl = false /*unused*/) 
+{
+    auto [host, port, path] = parse_http_url(url);
+
+    auto sock = connect_tcp(host, port);
+
+    std::ostringstream req;
+    req << "POST " << path << " HTTP/1.1\r\n"
+        << "Host: "      << host         << "\r\n"
+        << "User-Agent: HTTPLogger/1.0\r\n"
+        << "Content-Type: application/json\r\n"
+        << "Content-Length: " << body.size() << "\r\n"
+        << "Connection: close\r\n\r\n"
+        << body;
+
+    std::string out = req.str();
+    size_t total = out.size(), sent = 0;
+    while (sent < total) {
+        ssize_t n = ::send(sock.fd(), out.data() + sent, total - sent, 0);
+        if (n <= 0)
+            throw std::runtime_error("Failed to send HTTP request");
+        sent += n;
+    }
+
+    std::string resp;
+    char buffer[4096];
+    while (true) {
+        ssize_t n = ::recv(sock.fd(), buffer, sizeof(buffer), 0);
+        if (n < 0)
+            throw std::runtime_error("Error reading HTTP response");
+        if (n == 0) break;
+        resp.append(buffer, n);
+    }
+    return resp;
+}
+
 //-------------------------------------------------------------------------
 // field formatting functions
 //-------------------------------------------------------------------------
@@ -81,7 +191,7 @@ struct Args
     time_t timestamp;
 };
 
-bool AddTimestampField(const Args &a)
+static bool AddTimestampField(const Args &a)
 {
     time_t current_time = time(nullptr);
     if (a.comma)
@@ -1075,14 +1185,14 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     if (json_event)
     {
         size_t json_event_size = strlen(json_event);
-
-        cpr::Response response = cpr::Post(
-            cpr::Url{http_endpoint},
-            cpr::Body{json_event},
-            cpr::Header{{"Content-Type", "application/json"}},
-            cpr::VerifySsl(verify_ssl)
-        );
-
+        try {
+            std::string body{json_event};
+            free(json_event);
+            std::string server_reply = http_post(http_endpoint, body, verify_ssl);
+        }
+        catch (const std::exception &ex) {
+            std::cerr << "[HTTPLogger ERROR] " << ex.what() << "\n";
+        }
         free(json_event);
     }
 }   

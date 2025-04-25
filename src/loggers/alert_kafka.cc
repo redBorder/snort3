@@ -80,7 +80,7 @@ struct Args
     time_t timestamp;
 };
 
-bool AddTimestampField(const Args &a)
+static bool AddTimestampField(const Args &a)
 {
     time_t current_time = time(nullptr);
     if (a.comma)
