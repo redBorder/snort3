@@ -40,7 +40,7 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 Packager: Official Snort.org %{for_distro}
 Vendor: %{vendor}
 Requires: libcurl libgeolite, libcpr, libmaxminddb, libdaq, libdaq-modules, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka, xz
-BuildRequires: libcurl-devel mlocate libcpr-devel libgeolite-devel, libmaxminddb-devel, xz-devel,flex, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex
+BuildRequires: libcurl-devel, libcpr-devel, libgeolite-devel, libmaxminddb-devel, xz-devel,flex, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex, pfring
 
 %description
 Snort is an open source network intrusion detection system, capable of
@@ -75,9 +75,9 @@ Development tools for Snort
 CFLAGS="$RPM_OPT_FLAGS"
 export AM_CFLAGS="-g -O2"
 export LDFLAGS="-Wl,--copy-dt-needed-entries"
-updatedb
-locate cpr
-./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell --with-cpr-includes=/usr/include/cpr/
+#updatedb
+#locate cpr
+./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell --with-cpr-includes=/usr/include/cpr/ --with-pcap-libraries=/usr/lib64/ --with-pcap-includes=/usr/include/pcap/
 # --disable-gdb
 cd ./build
 %{make_build} VERBOSE=1
