@@ -29,6 +29,16 @@ set(EXTERNAL_INCLUDES
     ${GEOLITE_INCLUDE_DIR}
 )
 
+find_package(OpenSSL REQUIRED
+             COMPONENTS SSL Crypto)
+
+list(APPEND EXTERNAL_LIBRARIES
+     OpenSSL::SSL
+     OpenSSL::Crypto)
+
+list(APPEND EXTERNAL_INCLUDES
+     ${OpenSSL_INCLUDE_DIR})
+
 if ( ENABLE_STATIC_DAQ )
     LIST(APPEND EXTERNAL_LIBRARIES ${DAQ_STATIC_MODULE_LIBS})
 endif ()
@@ -74,6 +84,11 @@ endif ()
 if ( HAVE_RDKAFKA )
     LIST(APPEND EXTERNAL_LIBRARIES ${RDKAFKA_LIBRARIES})
     LIST(APPEND EXTERNAL_INCLUDES ${RDKAFKA_INCLUDE_DIR})
+endif ()
+
+if ( HAVE_CPR )
+     LIST(APPEND EXTERNAL_LIBRARIES ${CPR_LIBRARIES})
+     LIST(APPEND EXTERNAL_INCLUDES ${CPR_INCLUDE_DIR})
 endif ()
 
 if ( HAVE_GEOLITE )
@@ -238,6 +253,7 @@ message("
 target_link_libraries( snort
     ${EXTERNAL_LIBRARIES}
     ${EXTRA_LIBRARIES}
+    curl
 )
 
 # Solaris requires libnsl and libsocket for various network-related library functions

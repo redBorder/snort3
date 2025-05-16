@@ -15,15 +15,15 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //--------------------------------------------------------------------------
 
-// alert_kafka.cc author Miguel Álvarez <malvarez@redborder.com>
+// alert_http.cc author Miguel Álvarez <malvarez@redborder.com>
 
-// preliminary version based on hacking up alert_json.cc and putting data into a buffer for sending to kafka
+// preliminary version based on hacking up alert_json.cc and putting data into a buffer for sending to http
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include <librdkafka/rdkafka.h>
+#include <cpr/cpr.h>
 #include "geoip/rbgeoip.h"
 #include "macs/mac_vendors.h"
 #include "detection/detection_engine.h"
@@ -47,6 +47,8 @@
 #include "utils/stats.h"
 #include "enrichment/sensor_enrichment.h"
 
+#define DEF_VERIFY_SSL "true"
+
 using namespace snort;
 using namespace std;
 
@@ -55,17 +57,16 @@ using namespace std;
 static THREAD_LOCAL BinaryWriter *json_log;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
 
-thread_local std::unique_ptr<MacVendorDatabase> _MacVendorDB = nullptr;
+thread_local std::unique_ptr<MacVendorDatabase> _HTTPMacVendorDB = nullptr;
 
-MacVendorDatabase& MacVendorDB() {
-    if (!_MacVendorDB) {
-        _MacVendorDB = std::make_unique<MacVendorDatabase>();
+MacVendorDatabase& HTTPMacVendorDB() {
+    if (!_HTTPMacVendorDB) {
+        _HTTPMacVendorDB = std::make_unique<MacVendorDatabase>();
     }
-    return *_MacVendorDB;
+    return *_HTTPMacVendorDB;
 }
 
-#define S_NAME "alert_kafka"
-#define D_TOPIC "rb_event"
+#define S_NAME "alert_http"
 
 //-------------------------------------------------------------------------
 // field formatting functions
@@ -265,7 +266,7 @@ static bool ff_eth_src_mac(const Args &a)
         mac_prefix |= static_cast<uint64_t>(eh->ether_src[i]);
     }
 
-    const char *vendor = MacVendorDB().find_mac_vendor(mac_prefix);
+    const char *vendor = HTTPMacVendorDB().find_mac_vendor(mac_prefix);
 
     if (vendor)
     {
@@ -310,7 +311,7 @@ static bool ff_eth_dst_mac(const Args &a)
         mac_prefix |= static_cast<uint64_t>(eh->ether_dst[i]);
     }
 
-    const char *vendor = MacVendorDB().find_mac_vendor(mac_prefix);
+    const char *vendor = HTTPMacVendorDB().find_mac_vendor(mac_prefix);
 
     if (vendor)
     {
@@ -896,11 +897,12 @@ static const JsonFunc json_func[] =
 
 static const Parameter s_params[] =
     {
-        {"topic", Parameter::PT_STRING, nullptr, "rb_event",
-         "send data to topic " D_TOPIC},
 
-        {"broker_host", Parameter::PT_STRING, nullptr, "kafka.service",
-         "Kafka broker host"},
+        { "http_endpoint", Parameter::PT_STRING, nullptr, nullptr,
+        "HTTP endpoint for send data to the manager" },
+
+        { "verify_ssl", Parameter::PT_BOOL, nullptr, DEF_VERIFY_SSL,
+        "Verify SSL Cert when sending requests" },
 
         {"enrichment", Parameter::PT_STRING, nullptr, nullptr,
          "JSON enrichment object"},
@@ -920,12 +922,12 @@ static const Parameter s_params[] =
         {nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr}};
 
 #define s_help \
-    "send snort event to kafka"
+    "send snort event to http endpoint"
 
-class KafkaModule : public Module
+class HTTPModule : public Module
 {
 public:
-    KafkaModule() : Module(S_NAME, s_help, s_params) {}
+    HTTPModule() : Module(S_NAME, s_help, s_params) {}
 
     bool set(const char *, Value &, SnortConfig *) override;
     bool begin(const char *, int, SnortConfig *) override;
@@ -937,15 +939,14 @@ public:
 
 public:
     string sep;
-    string topic;
-    string broker_host;
+    string http_endpoint;
     string enrichment;
     string mac_vendors;
     string geoip_db;
     vector<JsonFunc> fields;
 };
 
-bool KafkaModule::set(const char *, Value &v, SnortConfig *)
+bool HTTPModule::set(const char *, Value &v, SnortConfig *)
 {
     if (v.is("fields"))
     {
@@ -961,11 +962,8 @@ bool KafkaModule::set(const char *, Value &v, SnortConfig *)
         }
     }
 
-    else if (v.is("topic"))
-        topic = v.get_string();
-
-    else if (v.is("broker_host"))
-        broker_host = v.get_string();
+    if ( v.is("http_endpoint") )
+        http_endpoint = v.get_string();
 
     else if (v.is("separator"))
         sep = v.get_string();
@@ -982,7 +980,7 @@ bool KafkaModule::set(const char *, Value &v, SnortConfig *)
     return true;
 }
 
-bool KafkaModule::begin(const char *, int, SnortConfig *)
+bool HTTPModule::begin(const char *, int, SnortConfig *)
 {
     sep = ", ";
 
@@ -1006,10 +1004,10 @@ bool KafkaModule::begin(const char *, int, SnortConfig *)
 // logger stuff
 //-------------------------------------------------------------------------
 
-class KafkaLogger : public Logger
+class HTTPLogger : public Logger
 {
 public:
-    KafkaLogger(KafkaModule *m);
+    HTTPLogger(HTTPModule *m);
 
     void open() override;
     void close() override;
@@ -1017,69 +1015,49 @@ public:
     void alert(Packet *p, const char *msg, const Event &event) override;
 
 private:
-    string topic;
-    string broker_host;
     string sep;
     string group_name;
     string mac_vendors;
     string geoip_db;
     vector<JsonFunc> fields;
     string enrichment;
-    thread_local static rd_kafka_t *rk;
-    thread_local static rd_kafka_conf_t *conf;
-    thread_local static rd_kafka_topic_t *rkt;
+    std::string http_endpoint;
+    bool verify_ssl;
     char errstr[512];
 };
 
-thread_local rd_kafka_t *KafkaLogger::rk = nullptr;
-thread_local rd_kafka_conf_t *KafkaLogger::conf = nullptr;
-thread_local rd_kafka_topic_t *KafkaLogger::rkt = nullptr;
-
-KafkaLogger::KafkaLogger(KafkaModule *m)
+HTTPLogger::HTTPLogger(HTTPModule *m)
 {
-    topic = m->topic;
     sep = m->sep;
     enrichment = m->enrichment;
     fields = move(m->fields);
     fields.push_back(AddTimestampField);
-    broker_host = m->broker_host;
     mac_vendors = m->mac_vendors;
     geoip_db = m->geoip_db;
+    http_endpoint = m->http_endpoint;
 }
 
-void KafkaLogger::open()
+void HTTPLogger::open()
 {
-    conf = rd_kafka_conf_new();
-    rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr));
     json_log = BinaryWriter_Init(LOG_BUFFER);
 
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
-    if(mac_vendors.length() > 0) MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
+    if(mac_vendors.length() > 0) HTTPMacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 
-    rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
-    rkt = rd_kafka_topic_new(rk, topic.c_str(), nullptr);
 }
 
-void KafkaLogger::close()
+void HTTPLogger::close()
 {
     if (json_log)
         BinaryWriter_Term(json_log);
-    if (rkt)
-    {
-        rd_kafka_topic_destroy(rkt);
-    }
-    if (rk)
-    {
-        rd_kafka_flush(rk, 10000);
-        rd_kafka_destroy(rk);
-    }
-    if (_MacVendorDB) {
-        _MacVendorDB.reset();
+    
+    if (_HTTPMacVendorDB) {
+        _HTTPMacVendorDB.reset();
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
 }
 
-void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
+void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
 {
     Args a = {p, msg, event, false};
     BinaryWriter_Putc(json_log, '{');
@@ -1098,17 +1076,16 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
     {
         size_t json_event_size = strlen(json_event);
 
-        if (rd_kafka_produce(
-                rkt, RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_COPY,
-                json_event, json_event_size,
-                nullptr, 0, nullptr) == -1)
-        {
-        }
+        cpr::Response response = cpr::Post(
+            cpr::Url{http_endpoint},
+            cpr::Body{json_event},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::VerifySsl(verify_ssl)
+        );
+
         free(json_event);
     }
-
-    rd_kafka_poll(rk, 0);
-}
+}   
 
 //-------------------------------------------------------------------------
 // api stuff
@@ -1116,7 +1093,7 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
 
 static Module *mod_ctor()
 {
-    return new KafkaModule;
+    return new HTTPModule;
 }
 
 static void mod_dtor(Module *m)
@@ -1124,17 +1101,17 @@ static void mod_dtor(Module *m)
     delete m;
 }
 
-static Logger *kafka_ctor(Module *mod)
+static Logger *http_ctor(Module *mod)
 {
-    return new KafkaLogger((KafkaModule *)mod);
+    return new HTTPLogger((HTTPModule *)mod);
 }
 
-static void kafka_dtor(Logger *p)
+static void http_dtor(Logger *p)
 {
     delete p;
 }
 
-static LogApi kafka_api{
+static LogApi http_api{
     {PT_LOGGER,
      sizeof(LogApi),
      LOGAPI_VERSION,
@@ -1146,14 +1123,14 @@ static LogApi kafka_api{
      mod_ctor,
      mod_dtor},
     OUTPUT_TYPE_FLAG__ALERT,
-    kafka_ctor,
-    kafka_dtor};
+    http_ctor,
+    http_dtor};
 
 #ifdef BUILDING_SO
 SO_PUBLIC const BaseApi *snort_plugins[] =
 #else
-const BaseApi *alert_kafka[] =
+const BaseApi *alert_http[] =
 #endif
     {
-        &kafka_api.base,
+        &http_api.base,
         nullptr};

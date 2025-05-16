@@ -478,6 +478,12 @@ while [ $# -ne 0 ]; do
         --with-libml-libraries=*)
             append_cache_entry ML_LIBRARIES_DIR_HINT PATH $optarg
             ;;
+        --with-cpr-includes=*)
+             append_cache_entry CPR_INCLUDE_DIR_HINT PATH $optarg
+             ;;
+         --with-cpr-libraries=*)
+             append_cache_entry CPR_LIBRARIES_DIR_HINT PATH $optarg
+             ;;
         --without-libml)
             append_cache_entry ENABLE_KAIZEN_MOCK BOOL true
             ;;
