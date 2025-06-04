@@ -6,8 +6,7 @@ After=network.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/snort/%i/env
-ExecStart=/usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -R /etc/snort/%i/snort.rules -A ${OUTPUT_PLUGIN} -z ${THREADS}
-CPUAffinity=$CPU_CORES
+ExecStart=/bin/sh -c 'taskset -c "$(echo ${CPU_CORES} | sed "s/ /,/g")" /usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -R /etc/snort/%i/snort.rules -A ${OUTPUT_PLUGIN} -z ${THREADS}'
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
