@@ -1074,7 +1074,7 @@ void KafkaLogger::open()
     conf = rd_kafka_conf_new();
     rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr));
     json_log = BinaryWriter_Init(LOG_BUFFER);
-    full_log = TextLog_Init(file.c_str(), LOG_BUFFER, 0);
+    full_log = TextLog_Init(file.c_str(), LOG_BUFFER, limit);
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 
@@ -1099,6 +1099,38 @@ void KafkaLogger::close()
         _MacVendorDB.reset();
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
+}
+
+void LogFullPacketData(TextLog* log, const Packet* p)
+{
+    const uint8_t* data = p->pkt;
+    uint32_t len = p->pktlen;
+
+    for (uint32_t offset = 0; offset < len; offset += 16)
+    {
+        TextLog_Print(log, "%06x  ", offset);
+
+        for (uint32_t i = 0; i < 16; ++i)
+        {
+            if (offset + i < len)
+                TextLog_Print(log, "%02x ", data[offset + i]);
+            else
+                TextLog_Puts(log, "   ");
+        }
+
+        TextLog_Puts(log, " ");
+
+        for (uint32_t i = 0; i < 16 && (offset + i) < len; ++i)
+        {
+            char c = static_cast<char>(data[offset + i]);
+            if (isprint(static_cast<unsigned char>(c)))
+                TextLog_Putc(log, c);
+            else
+                TextLog_Putc(log, '.');
+        }
+
+        TextLog_NewLine(log);
+    }
 }
 
 /*
@@ -1141,6 +1173,9 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event)
 
     if (p->has_ip())
     {
+        
+        LogFullPacketData(full_log, p);
+
         /* print the packet header to the alert file */
 
         if (p->context->conf->output_datalink())
