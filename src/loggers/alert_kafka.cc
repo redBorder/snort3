@@ -46,6 +46,9 @@
 #include "protocols/vlan.h"
 #include "utils/stats.h"
 #include "enrichment/sensor_enrichment.h"
+#include <random>
+#include <sstream>
+#include <iomanip>
 
 using namespace snort;
 using namespace std;
@@ -70,6 +73,27 @@ MacVendorDatabase& MacVendorDB() {
 
 #define S_NAME_PCAP "alert_full"
 #define F_NAME S_NAME_PCAP ".txt"
+
+std::string GenerateUUID()
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint32_t> dis32;
+    std::uniform_int_distribution<uint16_t> dis16;
+
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+
+    ss << std::setw(8) << dis32(gen) << "-";
+    ss << std::setw(4) << dis16(gen) << "-";
+    ss << std::setw(4) << ((dis16(gen) & 0x0fff) | 0x4000) << "-";
+    ss << std::setw(4) << ((dis16(gen) & 0x3fff) | 0x8000) << "-";
+    ss << std::setw(4) << dis16(gen)
+       << std::setw(4) << dis16(gen)
+       << std::setw(4) << dis16(gen);
+
+    return ss.str();
+}
 
 //-------------------------------------------------------------------------
 // field formatting functions
@@ -1136,7 +1160,7 @@ void LogFullPacketData(TextLog* log, const Packet* p)
 /*
  * Only for intrusion sensor in manager modee
  */
-void AlertPacketPayload(Packet* p, const char* msg, const Event& event)
+void AlertPacketPayload(Packet* p, const char* msg, const Event& event, const char* event_uuid)
 {
     TextLog_Puts(full_log, "[**] ");
 
@@ -1148,6 +1172,11 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event)
     {
         const char* iface = SFDAQ::get_input_spec();
         TextLog_Print(full_log, " <%s> ", iface);
+    }
+
+    if (event_uuid)
+    {
+        TextLog_Print(full_log, " UUID:%s ", event_uuid);
     }
 
     if (msg != nullptr)
@@ -1164,7 +1193,7 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event)
     {
         LogPriorityData(full_log, event);
         TextLog_NewLine(full_log);
-        if ( LogAppID(full_log, p) )
+        if (LogAppID(full_log, p))
             TextLog_NewLine(full_log);
     }
 
@@ -1173,10 +1202,7 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event)
 
     if (p->has_ip())
     {
-        
         LogFullPacketData(full_log, p);
-
-        /* print the packet header to the alert file */
 
         if (p->context->conf->output_datalink())
         {
@@ -1185,45 +1211,52 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event)
 
         LogIPHeader(full_log, p);
 
-        /* if this isn't a fragment, print the other header info */
         if (!(p->is_fragment()))
         {
             switch (p->type())
             {
-            case PktType::TCP:
-                LogTCPHeader(full_log, p);
-                break;
-
-            case PktType::UDP:
-                LogUDPHeader(full_log, p);
-                break;
-
-            case PktType::ICMP:
-                LogICMPHeader(full_log, p);
-                break;
-
-            default:
-                break;
+                case PktType::TCP:
+                    LogTCPHeader(full_log, p);
+                    break;
+                case PktType::UDP:
+                    LogUDPHeader(full_log, p);
+                    break;
+                case PktType::ICMP:
+                    LogICMPHeader(full_log, p);
+                    break;
+                default:
+                    break;
             }
         }
+
         LogXrefs(full_log, event);
     }
+
     TextLog_Puts(full_log, "\n");
     TextLog_Flush(full_log);
 }
 
-
 void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
 {
+    std::string event_uuid = GenerateUUID();
+
     Args a = {p, msg, event, false};
+
     BinaryWriter_Putc(json_log, '{');
+
+    BinaryWriter_Print(json_log, "\"event_uuid\":\"%s\"", event_uuid.c_str());
+    a.comma = true;
+
     for (JsonFunc f : fields)
     {
         f(a);
         a.comma = true;
     }
 
-    if(enrichment.length() > 0) SensorEnrichment::EnrichJsonLog(json_log, enrichment);
+    if (enrichment.length() > 0)
+    {
+        SensorEnrichment::EnrichJsonLog(json_log, enrichment);
+    }
 
     BinaryWriter_Print(json_log, " }");
 
@@ -1238,12 +1271,15 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
                 nullptr, 0, nullptr) == -1)
         {
         }
-        AlertPacketPayload(p, msg, event);
+
+        AlertPacketPayload(p, msg, event, event_uuid.c_str());
+
         free(json_event);
     }
 
     rd_kafka_poll(rk, 0);
 }
+
 
 //-------------------------------------------------------------------------
 // api stuff
