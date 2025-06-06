@@ -22,7 +22,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
+#include "main/snort_config.h"
 #include <librdkafka/rdkafka.h>
 #include "geoip/rbgeoip.h"
 #include "macs/mac_vendors.h"
@@ -53,6 +53,7 @@ using namespace std;
 #define LOG_BUFFER (4 * K_BYTES)
 
 static THREAD_LOCAL BinaryWriter *json_log;
+static THREAD_LOCAL TextLog* full_log = nullptr;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
 
 thread_local std::unique_ptr<MacVendorDatabase> _MacVendorDB = nullptr;
@@ -1052,7 +1053,8 @@ void KafkaLogger::open()
     conf = rd_kafka_conf_new();
     rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr));
     json_log = BinaryWriter_Init(LOG_BUFFER);
-
+    string file = "/var/log/pcap.log";
+    full_log = TextLog_Init(file.c_str(), LOG_BUFFER, 0);
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 
@@ -1079,6 +1081,83 @@ void KafkaLogger::close()
     GeoIpLoader::Manager::getInstance()->unloadDB();
 }
 
+/*
+ * Only for intrusion sensor in manager modee
+ */
+void AlertPacketPayload(Packet* p, const char* msg, const Event& event)
+{
+    TextLog_Puts(full_log, "[**] ");
+
+    uint32_t gid, sid, rev;
+    event.get_sig_ids(gid, sid, rev);
+    TextLog_Print(full_log, "[%u:%u:%u] ", gid, sid, rev);
+
+    if (p->context->conf->alert_interface())
+    {
+        const char* iface = SFDAQ::get_input_spec();
+        TextLog_Print(full_log, " <%s> ", iface);
+    }
+
+    if (msg != nullptr)
+    {
+        TextLog_Puts(full_log, msg);
+        TextLog_Puts(full_log, " [**]\n");
+    }
+    else
+    {
+        TextLog_Puts(full_log, "[**]\n");
+    }
+
+    if (p->has_ip())
+    {
+        LogPriorityData(full_log, event);
+        TextLog_NewLine(full_log);
+        if ( LogAppID(full_log, p) )
+            TextLog_NewLine(full_log);
+    }
+
+    LogTimeStamp(full_log, p);
+    TextLog_Putc(full_log, ' ');
+
+    if (p->has_ip())
+    {
+        /* print the packet header to the alert file */
+
+        if (p->context->conf->output_datalink())
+        {
+            Log2ndHeader(full_log, p);
+        }
+
+        LogIPHeader(full_log, p);
+
+        /* if this isn't a fragment, print the other header info */
+        if (!(p->is_fragment()))
+        {
+            switch (p->type())
+            {
+            case PktType::TCP:
+                LogTCPHeader(full_log, p);
+                break;
+
+            case PktType::UDP:
+                LogUDPHeader(full_log, p);
+                break;
+
+            case PktType::ICMP:
+                LogICMPHeader(full_log, p);
+                break;
+
+            default:
+                break;
+            }
+        }
+        LogXrefs(full_log, event);
+    }
+    TextLog_Puts(full_log, "\n");
+    TextLog_Flush(full_log);
+}
+
+
 void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
 {
     Args a = {p, msg, event, false};
@@ -1104,6 +1183,7 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
                 nullptr, 0, nullptr) == -1)
         {
         }
+        AlertPacketPayload(p, msg, event);
         free(json_event);
     }
 
