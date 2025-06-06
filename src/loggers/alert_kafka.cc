@@ -68,6 +68,9 @@ MacVendorDatabase& MacVendorDB() {
 #define S_NAME "alert_kafka"
 #define D_TOPIC "rb_event"
 
+#define S_NAME_PCAP "alert_full"
+#define F_NAME S_NAME_PCAP ".txt"
+
 //-------------------------------------------------------------------------
 // field formatting functions
 //-------------------------------------------------------------------------
@@ -918,6 +921,9 @@ static const Parameter s_params[] =
         {"separator", Parameter::PT_STRING, nullptr, ", ",
          "separate fields with this character sequence"},
 
+        { "file", Parameter::PT_BOOL, nullptr, "false",
+            "output to " F_NAME " instead of stdout" },
+
         {nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr}};
 
 #define s_help \
@@ -937,6 +943,8 @@ public:
     }
 
 public:
+    bool file = false;
+    size_t limit = 0;
     string sep;
     string topic;
     string broker_host;
@@ -980,12 +988,21 @@ bool KafkaModule::set(const char *, Value &v, SnortConfig *)
     else if (v.is("geoip_db"))
         geoip_db = v.get_string();
 
+    if ( v.is("file") )
+        file = v.get_bool();
+
+    else if ( v.is("limit") )
+        limit = v.get_size() * 1024 * 1024;
+
     return true;
 }
 
 bool KafkaModule::begin(const char *, int, SnortConfig *)
 {
     sep = ", ";
+
+    file = false;
+    limit = 0;
 
     if (fields.empty())
     {
@@ -1024,6 +1041,8 @@ private:
     string group_name;
     string mac_vendors;
     string geoip_db;
+    string file;
+    unsigned long limit;
     vector<JsonFunc> fields;
     string enrichment;
     thread_local static rd_kafka_t *rk;
@@ -1046,6 +1065,8 @@ KafkaLogger::KafkaLogger(KafkaModule *m)
     broker_host = m->broker_host;
     mac_vendors = m->mac_vendors;
     geoip_db = m->geoip_db;
+    file = m->file ? F_NAME : "stdout";
+    limit = m->limit;
 }
 
 void KafkaLogger::open()
@@ -1053,7 +1074,6 @@ void KafkaLogger::open()
     conf = rd_kafka_conf_new();
     rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr));
     json_log = BinaryWriter_Init(LOG_BUFFER);
-    string file = "/var/log/pcap.log";
     full_log = TextLog_Init(file.c_str(), LOG_BUFFER, 0);
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
