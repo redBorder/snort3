@@ -1162,11 +1162,6 @@ void LogFullPacketData(TextLog* log, const Packet* p)
  */
 void AlertPacketPayload(Packet* p, const char* msg, const Event& event, const char* event_uuid)
 {
-    TextLog_Puts(full_log, "[**] ");
-
-    uint32_t gid, sid, rev;
-    event.get_sig_ids(gid, sid, rev);
-
     if (event_uuid)
     {
         TextLog_Print(full_log, " %s:", event_uuid);
