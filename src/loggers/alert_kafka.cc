@@ -1166,70 +1166,15 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event, const ch
 
     uint32_t gid, sid, rev;
     event.get_sig_ids(gid, sid, rev);
-    TextLog_Print(full_log, "[%u:%u:%u] ", gid, sid, rev);
-
-    if (p->context->conf->alert_interface())
-    {
-        const char* iface = SFDAQ::get_input_spec();
-        TextLog_Print(full_log, " <%s> ", iface);
-    }
 
     if (event_uuid)
     {
-        TextLog_Print(full_log, " UUID:%s ", event_uuid);
+        TextLog_Print(full_log, " %s:", event_uuid);
     }
-
-    if (msg != nullptr)
-    {
-        TextLog_Puts(full_log, msg);
-        TextLog_Puts(full_log, " [**]\n");
-    }
-    else
-    {
-        TextLog_Puts(full_log, "[**]\n");
-    }
-
-    if (p->has_ip())
-    {
-        LogPriorityData(full_log, event);
-        TextLog_NewLine(full_log);
-        if (LogAppID(full_log, p))
-            TextLog_NewLine(full_log);
-    }
-
-    LogTimeStamp(full_log, p);
-    TextLog_Putc(full_log, ' ');
 
     if (p->has_ip())
     {
         LogFullPacketData(full_log, p);
-
-        if (p->context->conf->output_datalink())
-        {
-            Log2ndHeader(full_log, p);
-        }
-
-        LogIPHeader(full_log, p);
-
-        if (!(p->is_fragment()))
-        {
-            switch (p->type())
-            {
-                case PktType::TCP:
-                    LogTCPHeader(full_log, p);
-                    break;
-                case PktType::UDP:
-                    LogUDPHeader(full_log, p);
-                    break;
-                case PktType::ICMP:
-                    LogICMPHeader(full_log, p);
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        LogXrefs(full_log, event);
     }
 
     TextLog_Puts(full_log, "\n");
