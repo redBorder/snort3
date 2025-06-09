@@ -72,7 +72,7 @@ MacVendorDatabase& MacVendorDB() {
 #define D_TOPIC "rb_event"
 
 #define S_NAME_PCAP "alert_full"
-#define F_NAME S_NAME_PCAP ".mlv.lz4" // Malvads magic tricks
+#define F_NAME S_NAME_PCAP ".txt"
 
 std::string GenerateUUID()
 {
@@ -1173,7 +1173,7 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event, const ch
     }
 
     TextLog_Puts(full_log, "\n");
-    TextLog_FlushToLZ4(full_log);
+    TextLog_Flush(full_log);
 }
 
 void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)

@@ -39,8 +39,8 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Packager: Official Snort.org %{for_distro}
 Vendor: %{vendor}
-Requires: lz4 libcurl libgeolite, libcpr, libmaxminddb, libdaq, libdaq-modules, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka, xz
-BuildRequires: lz4-devel libcurl-devel, libcpr-devel, libgeolite-devel, libmaxminddb-devel, xz-devel,flex, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex, pfring
+Requires: libcurl libgeolite, libcpr, libmaxminddb, libdaq, libdaq-modules, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka, xz
+BuildRequires: libcurl-devel, libcpr-devel, libgeolite-devel, libmaxminddb-devel, xz-devel,flex, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex, pfring
 
 %description
 Snort is an open source network intrusion detection system, capable of
