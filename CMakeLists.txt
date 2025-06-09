@@ -212,6 +212,14 @@ else ()
     LibML:          OFF")
 endif ()
 
+if (HAVE_LZ4)
+    message("\
+    LZ4:          ON")
+else ()
+    message("\
+    LZ4:          OFF")
+endif ()
+
 if (HAVE_CPR)
      message("\
      CPR:            ON")
