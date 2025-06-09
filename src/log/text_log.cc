@@ -214,6 +214,7 @@ bool TextLog_Flush(TextLog* const txt)
  * TextLog_FlushToLZ4: write buffered stream to file using LZ4
  *-------------------------------------------------------------------
  */
+
 bool TextLog_FlushToLZ4(TextLog* const txt)
 {
     if (!txt->pos)
@@ -234,21 +235,20 @@ bool TextLog_FlushToLZ4(TextLog* const txt)
         return false;
     }
 
-    if (txt->maxFile && txt->size + compressed_size > txt->maxFile)
+    if (txt->maxFile && txt->size + compressed_size + 4 > txt->maxFile)
         TextLog_Roll(txt);
 
-    int ok = fwrite(compressed.data(), compressed_size, 1, txt->file);
+    uint32_t size_le = static_cast<uint32_t>(compressed_size);
+    if (fwrite(&size_le, sizeof(uint32_t), 1, txt->file) != 1)
+        return false;
 
-    if (ok == 1)
-    {
-        txt->size += compressed_size;
-        TextLog_Reset(txt);
-        return true;
-    }
+    if (fwrite(compressed.data(), compressed_size, 1, txt->file) != 1)
+        return false;
 
-    return false;
+    txt->size += compressed_size + 4;
+    TextLog_Reset(txt);
+    return true;
 }
-
 /*-------------------------------------------------------------------
  * TextLog_Putc: append char to buffer
  *-------------------------------------------------------------------
