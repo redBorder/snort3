@@ -12,6 +12,7 @@ find_package(PCRE REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(geoLite2pp REQUIRED)
 find_package(Rdkafka REQUIRED)
+find_package(LZ4 REQUIRED)
 find_package(CPR QUIET)
 
 if (ENABLE_UNIT_TESTS)

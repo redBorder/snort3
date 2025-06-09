@@ -41,6 +41,9 @@
 
 #include "log.h"
 
+#include <lz4.h>
+#include <cstdio>
+
 using namespace snort;
 
 /* a reasonable minimum */
@@ -204,6 +207,45 @@ bool TextLog_Flush(TextLog* const txt)
         TextLog_Reset(txt);
         return true;
     }
+    return false;
+}
+
+/*-------------------------------------------------------------------
+ * TextLog_FlushToLZ4: write buffered stream to file using LZ4
+ *-------------------------------------------------------------------
+ */
+bool TextLog_FlushToLZ4(TextLog* const txt)
+{
+    if (!txt->pos)
+        return false;
+
+    int max_compressed_size = LZ4_compressBound(txt->pos);
+    std::vector<char> compressed(max_compressed_size);
+
+    int compressed_size = LZ4_compress_default(
+        txt->buf,
+        compressed.data(),
+        static_cast<int>(txt->pos),
+        max_compressed_size
+    );
+
+    if (compressed_size <= 0)
+    {
+        return false;
+    }
+
+    if (txt->maxFile && txt->size + compressed_size > txt->maxFile)
+        TextLog_Roll(txt);
+
+    int ok = fwrite(compressed.data(), compressed_size, 1, txt->file);
+
+    if (ok == 1)
+    {
+        txt->size += compressed_size;
+        TextLog_Reset(txt);
+        return true;
+    }
+
     return false;
 }
 

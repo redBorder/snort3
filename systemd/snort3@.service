@@ -2,10 +2,10 @@
 Description=Snort 3 Network Intrusion Detection System (instance %i)
 After=network.target
 
-
 [Service]
 Type=simple
 EnvironmentFile=/etc/snort/%i/env
+WorkingDirectory=/etc/snort/%i
 ExecStart=/bin/sh -c 'taskset -c "$(echo ${CPU_CORES} | sed "s/ /,/g")" /usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -R /etc/snort/%i/snort.rules -A ${OUTPUT_PLUGIN} -z ${THREADS}'
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
