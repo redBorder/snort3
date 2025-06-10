@@ -191,7 +191,7 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
                 return is_src ? TRUSTED_SRC : TRUSTED_DST;
             if (decision == MONITORED)
                 return is_src ? MONITORED_SRC : MONITORED_DST;
-                
+
             return decision;
         }
         return DECISION_NULL;
@@ -407,7 +407,7 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
         ReputationVerdictEvent event(p, REP_VERDICT_BLOCKED, iplist_id, BLOCKED_SRC == decision);
         DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
         act->drop_packet(p, true);
-
+        ErrorMessage("DROP PACKET DUE TO REPUTATION");
         // disable all preproc analysis and detection for this packet
         DetectionEngine::disable_all(p);
         act->block_session(p, true);
