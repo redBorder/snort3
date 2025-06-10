@@ -53,10 +53,16 @@ const PegInfo reputation_peg_names[] =
 { CountType::SUM, "blocked", "number of packets blocked" },
 { CountType::SUM, "trusted", "number of packets trusted" },
 { CountType::SUM, "monitored", "number of packets monitored" },
+{ CountType::SUM, "geo_ip_blocked", "number of packets blocked by geoip" },
+{ CountType::SUM, "geo_ip_trusted", "number of packets trusted by geoip" },
+{ CountType::SUM, "geo_ip_monitored", "number of packets monitored by geoip" },
 { CountType::SUM, "memory_allocated", "total memory allocated" },
 { CountType::SUM, "aux_ip_blocked", "number of auxiliary ip packets blocked" },
 { CountType::SUM, "aux_ip_trusted", "number of auxiliary ip packets trusted" },
 { CountType::SUM, "aux_ip_monitored", "number of auxiliary ip packets monitored" },
+{ CountType::SUM, "aux_ip_blocked_geo_ip", "number of auxiliary ip packets blocked by geoip" },
+{ CountType::SUM, "aux_ip_trusted_geo_ip", "number of auxiliary ip packets trusted by geoip" },
+{ CountType::SUM, "aux_ip_monitored_geo_ip", "number of auxiliary ip packets monitored by geoip" },
 { CountType::END, nullptr, nullptr }
 };
 
@@ -189,6 +195,17 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
         auto it = config.geoip_actions.find(country);
         if (it != config.geoip_actions.end()) {
             IPdecision decision = it->second;
+
+            if (decision == BLOCKED)
+                reputationstats.aux_ip_blocked_geo_ip++;
+                return is_src ? BLOCKED_SRC : BLOCKED_DST;
+            if (decision == TRUSTED)
+                reputationstats.aux_ip_trusted_geo_ip++;
+                return is_src ? TRUSTED_SRC : TRUSTED_DST;
+            if (decision == MONITORED)
+                reputationstats.aux_ip_monitored_geo_ip++;
+                return is_src ? MONITORED_SRC : MONITORED_DST;
+
             return decision;
         }
         return DECISION_NULL;
@@ -290,18 +307,27 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
         decision = get_reputation(config, data, result, iplist_id, ingress_intf,
             egress_intf);
         
-        if(decision == DECISION_NULL){
+        if (decision == DECISION_NULL) {
             decision = resolve_geo_decision(config, p->ptrs.ip_api);
-            if(decision == BLOCKED_SRC || decision == BLOCKED_DST){
-                decision = BLOCKED;
-            }
-            if(decision == MONITORED_SRC || decision == MONITORED_DST){
-                decision = MONITORED;
-            }
-            if(decision == TRUSTED_SRC || decision == TRUSTED_DST){
-                decision = TRUSTED;
+
+            switch (decision) {
+                case BLOCKED_SRC:
+                case BLOCKED_DST:
+                    decision = BLOCKED;
+                    break;
+                case MONITORED_SRC:
+                case MONITORED_DST:
+                    decision = MONITORED;
+                    break;
+                case TRUSTED_SRC:
+                case TRUSTED_DST:
+                    decision = TRUSTED;
+                    break;
+                default:
+                    break;
             }
         }
+
         if (decision == BLOCKED)
         {
             // Prior to IPRep logging, IPS policy must be set to the default policy,
@@ -417,7 +443,6 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
         ReputationVerdictEvent event(p, REP_VERDICT_BLOCKED, iplist_id, BLOCKED_SRC == decision);
         DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
         act->drop_packet(p, true);
-        ErrorMessage("DROP PACKET DUE TO REPUTATION");
         // disable all preproc analysis and detection for this packet
         DetectionEngine::disable_all(p);
         act->block_session(p, true);
