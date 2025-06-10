@@ -23,6 +23,7 @@
 #include <cstdint>
 
 #include "sfrt/sfrt_flat.h"
+#include "reputation_config.h"
 
 struct IPrepInfo;
 struct ListFile;

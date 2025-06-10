@@ -38,7 +38,7 @@
 #include "utils/util.h"
 
 #include "reputation_parse.h"
-#include <rbgeoip.h>
+#include "geoip/rbgeoip.h"
 
 using namespace snort;
 

@@ -20,6 +20,7 @@
 #ifndef REPUTATION_CONFIG_H
 #define REPUTATION_CONFIG_H
 
+#include <unordered_map>
 #include "framework/counts.h"
 #include "sfrt/sfrt.h"
 
