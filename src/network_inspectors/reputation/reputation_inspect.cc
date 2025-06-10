@@ -205,6 +205,32 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     if (config.nested_ip == INNER)
     {
         decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
+        ErrorMessage("NESTED_IP GEOIP");
+        if (decision_final == DECISION_NULL) {
+            auto resolveGeoDecision = [&](const SfIp* ip, bool is_src) {
+                bool is_ipv6 = p->ptrs.ip_api.is_ip6();
+                std::string ip_string = SfIpToString(*ip, is_ipv6);
+                std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
+                ErrorMessage(country.c_str());
+                ErrorMessage(ip_string.c_str());
+
+                if (country == "Unknown") return DECISION_NULL;
+
+                auto it = config.geoip_actions.find(country);
+                if (it != config.geoip_actions.end()) {
+                    IPdecision decision = it->second;
+                    if (decision == BLOCKED)
+                        return is_src ? BLOCKED_SRC : BLOCKED_DST;
+                    return decision;
+                }
+                return DECISION_NULL;
+            };
+
+            decision_final = resolveGeoDecision(p->ptrs.ip_api.get_src(), true);
+
+            if (decision_final == DECISION_NULL)
+                decision_final = resolveGeoDecision(p->ptrs.ip_api.get_dst(), false);
+        }
         return decision_final;
     }
 
