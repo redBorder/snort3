@@ -267,7 +267,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
         if (decision_final == DECISION_NULL)
             decision_final = resolveGeoDecision(p->ptrs.ip_api.get_dst(), false);
     }
-    
+
     if (decision_final != BLOCKED_SRC and decision_final != BLOCKED_DST)
         p->ptrs.ip_api = tmp_api;
     else if (config.nested_ip == ALL and p->ptrs.ip_api != blocked_api)
@@ -404,7 +404,8 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
 {
     IPdecision decision;
 
-    if (!data.ip_list)
+    ErrorMessage("SNORT_REPUTATION");
+    if (!data.ip_list && !config.geoip_enabled)
         return;
 
     uint32_t iplist_id;
