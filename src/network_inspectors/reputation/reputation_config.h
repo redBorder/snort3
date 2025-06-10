@@ -86,6 +86,13 @@ struct ReputationConfig
     std::string blocklist_path;
     std::string allowlist_path;
     std::string list_dir;
+    
+    /* redBorder GeoIP */
+    std::string geoip_db_path;
+    
+    std::string geoip_manifest_path;
+    bool geoip_enabled = false;
+    std::unordered_map<std::string, IPdecision> geoip_actions;
 };
 
 struct IPrepInfo

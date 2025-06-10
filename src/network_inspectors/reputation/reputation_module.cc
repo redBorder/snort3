@@ -128,6 +128,12 @@ bool ReputationModule::set(const char*, Value& v, SnortConfig*)
     if ( v.is("blocklist") )
         conf->blocklist_path = v.get_string();
 
+    if ( v.is("geoip_db_path") )
+        conf->geoip_db_path = v.get_string();
+
+    if ( v.is("geoip_manifest_path") )
+        conf->geoip_manifest_path = v.get_string();
+
     else if ( v.is("list_dir") )
         conf->list_dir = v.get_string();
 

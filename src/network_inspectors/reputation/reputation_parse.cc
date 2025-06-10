@@ -954,3 +954,78 @@ void ReputationParser::read_manifest(const char* manifest_file, const Reputation
     fs.close();
 }
 
+/*
+    redBorder reputation GeoIP Extension for snort3
+*/
+
+bool ReputationParser::process_geoip_file(const std::string& filename, IPdecision decision, ReputationConfig& config)
+{
+    std::ifstream file(filename);
+    if (!file.is_open())
+    {
+        ErrorMessage("Could not open GeoIP file: %s\n", filename.c_str());
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        line.erase(line.find_last_not_of(" \t") + 1);
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        if (line.length() < 2)
+            continue;
+
+        std::string country_code = line.substr(0, 2);
+        config.geoip_actions[country_code] = decision;
+        config.geoip_enabled = true;
+    }
+
+    return true;
+}
+
+bool ReputationParser::load_geoip_manifest(ReputationConfig& config)
+{
+    if (config.geoip_manifest_path.empty())
+        return false;
+
+    std::ifstream manifest(config.geoip_manifest_path);
+    if (!manifest.is_open())
+    {
+        ErrorMessage("Could not open GeoIP manifest file: %s\n", config.geoip_manifest_path.c_str());
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(manifest, line))
+    {
+        line.erase(line.find_last_not_of(" \t") + 1);
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        std::string filename, action;
+        
+        if (!(iss >> filename >> action))
+        {
+            ErrorMessage("Invalid line in GeoIP manifest: %s\n", line.c_str());
+            continue;
+        }
+
+        IPdecision decision = DECISION_NULL;
+        if (action == "white") decision = TRUSTED;
+        else if (action == "black") decision = BLOCKED;
+        else if (action == "monitor") decision = MONITORED;
+        else
+        {
+            ErrorMessage("Unknown action in GeoIP manifest: %s\n", action.c_str());
+            continue;
+        }
+
+        std::string full_path = config.list_dir + "/" + filename;
+        process_geoip_file(full_path, decision, config);
+    }
+
+    return true;
+}

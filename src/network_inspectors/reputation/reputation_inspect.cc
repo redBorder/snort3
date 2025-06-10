@@ -38,6 +38,7 @@
 #include "utils/util.h"
 
 #include "reputation_parse.h"
+#include <rbgeoip.h>
 
 using namespace snort;
 
@@ -165,9 +166,28 @@ static bool decision_per_layer(const ReputationConfig& config, ReputationData& d
     return false;
 }
 
+std::string SfIpToString(const SfIp& ip, bool is_ipv6)
+{
+    char buffer[INET6_ADDRSTRLEN] = {0};
+
+    if (is_ipv6)
+    {
+        if (inet_ntop(AF_INET6, &ip, buffer, INET6_ADDRSTRLEN) == nullptr)
+            return "";
+    }
+    else
+    {
+        if (inet_ntop(AF_INET, &ip, buffer, INET_ADDRSTRLEN) == nullptr)
+            return "";
+    }
+
+    return std::string(buffer);
+}
+
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
     Packet* p, uint32_t& iplist_id)
 {
+    
     IPdecision decision_final = DECISION_NULL;
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
@@ -225,6 +245,29 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
         p->ptrs.ip_api = blocked_api;
 
     p->ip_proto_next = tmp_next;
+
+    if (decision_final == DECISION_NULL) {
+        auto resolveGeoDecision = [&](const SfIp* ip, bool is_src) {
+            bool is_ipv6 = p->ptrs.ip_api.is_ip6();
+            std::string ip_string = SfIpToString(*ip, is_ipv6);
+            std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
+            if (country == "Unknown") return DECISION_NULL;
+
+            auto it = config.geoip_actions.find(country);
+            if (it != config.geoip_actions.end()) {
+                IPdecision decision = it->second;
+                if (decision == BLOCKED)
+                    return is_src ? BLOCKED_SRC : BLOCKED_DST;
+                return decision;
+            }
+            return DECISION_NULL;
+        };
+
+        decision_final = resolveGeoDecision(p->ptrs.ip_api.get_src(), true);
+
+        if (decision_final == DECISION_NULL)
+            decision_final = resolveGeoDecision(p->ptrs.ip_api.get_dst(), false);
+    }
     return decision_final;
 }
 
@@ -533,7 +576,9 @@ ReputationData* Reputation::load_data()
     ReputationData* data = new ReputationData();
     if (!config.list_dir.empty())
         ReputationParser::read_manifest(MANIFEST_FILENAME, config, *data);
-
+    if (config.geoip_db_path.size() > 0)
+        GeoIpLoader::Manager::getInstance(config.geoip_db_path);
+        ReputationParser::load_geoip_manifest(config);
     ReputationParser::add_block_allow_List(config, *data);
     ReputationParser::estimate_num_entries(*data);
     if (0 >= data->num_entries)
@@ -569,6 +614,8 @@ void Reputation::tterm()
 void Reputation::show(const SnortConfig*) const
 {
     ConfigLogger::log_value("blocklist", config.blocklist_path.c_str());
+    ConfigLogger::log_value("geoip_db_path", config.geoip_db_path.c_str());
+    ConfigLogger::log_value("geoip_manifest_path", config.geoip_manifest_path.c_str());
     ConfigLogger::log_value("list_dir", config.list_dir.c_str());
     ConfigLogger::log_value("memcap", config.memcap);
     ConfigLogger::log_value("nested_ip", to_string(config.nested_ip));
