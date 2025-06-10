@@ -211,6 +211,10 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
             return decision;
         }
 
+        if(country == "US"){
+          ErrorMessage("[GEOIP] DECISION ES NULL????");
+        } 
+
         return DECISION_NULL;
     };
 
