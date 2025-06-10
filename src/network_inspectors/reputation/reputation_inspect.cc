@@ -166,23 +166,6 @@ static bool decision_per_layer(const ReputationConfig& config, ReputationData& d
     return false;
 }
 
-std::string SfIpToString(const SfIp& ip, bool is_ipv6)
-{
-    char buffer[INET6_ADDRSTRLEN] = {0};
-
-    if (is_ipv6)
-    {
-        if (inet_ntop(AF_INET6, &ip, buffer, INET6_ADDRSTRLEN) == nullptr)
-            return "";
-    }
-    else
-    {
-        if (inet_ntop(AF_INET, &ip, buffer, INET_ADDRSTRLEN) == nullptr)
-            return "";
-    }
-
-    return std::string(buffer);
-}
 
 static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api, const Packet* p) {
     auto resolve = [&](const SfIp* ip, bool is_src) {
@@ -190,9 +173,10 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
             return DECISION_NULL;
 
         bool is_ipv6 = ip_api.is_ip6();
-        std::string ip_string = SfIpToString(*ip, is_ipv6);
         SfIpString ip_str;
-        ip_api.get_src()->ntop(ip_str);
+        
+        if(is_src) ip_api.get_src()->ntop(ip_str);
+        if(!is_src) ip_api.get_dst()->ntop(ip_str);
         std::string ip_string = ip_str;
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
         ErrorMessage(country.c_str());
