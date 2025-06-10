@@ -60,9 +60,6 @@ const PegInfo reputation_peg_names[] =
 { CountType::SUM, "aux_ip_blocked", "number of auxiliary ip packets blocked" },
 { CountType::SUM, "aux_ip_trusted", "number of auxiliary ip packets trusted" },
 { CountType::SUM, "aux_ip_monitored", "number of auxiliary ip packets monitored" },
-{ CountType::SUM, "aux_ip_blocked_geo_ip", "number of auxiliary ip packets blocked by geoip" },
-{ CountType::SUM, "aux_ip_trusted_geo_ip", "number of auxiliary ip packets trusted by geoip" },
-{ CountType::SUM, "aux_ip_monitored_geo_ip", "number of auxiliary ip packets monitored by geoip" },
 { CountType::END, nullptr, nullptr }
 };
 
@@ -172,11 +169,13 @@ static bool decision_per_layer(const ReputationConfig& config, ReputationData& d
     return false;
 }
 
-
 static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api) {
     auto resolve = [&](const SfIp* ip, bool is_src) {
-        if (!ip)
+        if (!ip) {
+            std::string msg = "resolve_geo_decision: IP is null (is_src=" + std::string(is_src ? "true" : "false") + ").";
+            ErrorMessage(msg.c_str());
             return DECISION_NULL;
+        }
 
         bool is_ipv6 = ip_api.is_ip6();
         SfIpString ip_str;
@@ -187,37 +186,66 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
             ip_api.get_dst()->ntop(ip_str);
 
         std::string ip_string = ip_str;
-        std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
-
-        if (country == "Unknown")
+        if (ip_string.empty()) {
+            std::string msg = "resolve_geo_decision: Failed to convert IP to string (is_src=" + std::string(is_src ? "true" : "false") + ").";
+            ErrorMessage(msg.c_str());
             return DECISION_NULL;
+        }
+
+        std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
+        std::string msg = "resolve_geo_decision: Resolved IP " + ip_string + " to country " + country + ".";
+        ErrorMessage(msg.c_str());
+
+        if (country == "Unknown") {
+            std::string msg = "resolve_geo_decision: Country is Unknown for IP: " + ip_string;
+            ErrorMessage(msg.c_str());
+            return DECISION_NULL;
+        }
 
         auto it = config.geoip_actions.find(country);
         if (it != config.geoip_actions.end()) {
             IPdecision decision = it->second;
 
-            if (decision == BLOCKED)
-                reputationstats.aux_ip_blocked_geo_ip++;
-                return is_src ? BLOCKED_SRC : BLOCKED_DST;
-            if (decision == TRUSTED)
-                reputationstats.aux_ip_trusted_geo_ip++;
-                return is_src ? TRUSTED_SRC : TRUSTED_DST;
-            if (decision == MONITORED)
-                 reputationstats.aux_ip_trusted_geo_ip++;
-                return is_src ? MONITORED_SRC : MONITORED_DST;
-
-            return decision;
+            switch (decision) {
+                case BLOCKED:
+                    reputationstats.geo_ip_blocked++;
+                    ErrorMessage(("resolve_geo_decision: Country " + country + " is BLOCKED.").c_str());
+                    return is_src ? BLOCKED_SRC : BLOCKED_DST;
+                case TRUSTED:
+                    reputationstats.geo_ip_trusted++;
+                    ErrorMessage(("resolve_geo_decision: Country " + country + " is TRUSTED.").c_str());
+                    return is_src ? TRUSTED_SRC : TRUSTED_DST;
+                case MONITORED:
+                    reputationstats.geo_ip_monitored++;
+                    ErrorMessage(("resolve_geo_decision: Country " + country + " is MONITORED.").c_str());
+                    return is_src ? MONITORED_SRC : MONITORED_DST;
+                default:
+                    ErrorMessage(("resolve_geo_decision: Country " + country + " has custom decision code " + std::to_string(decision) + ".").c_str());
+                    return decision;
+            }
+        } else {
+            ErrorMessage(("resolve_geo_decision: No geoip action configured for country: " + country).c_str());
         }
+
         return DECISION_NULL;
     };
 
     IPdecision result = resolve(ip_api.get_src(), true);
-    if (result == DECISION_NULL)
+    if (result == DECISION_NULL) {
+        ErrorMessage("resolve_geo_decision: Source IP decision was null, checking destination IP.");
         result = resolve(ip_api.get_dst(), false);
+    } else {
+        ErrorMessage("resolve_geo_decision: Decision resolved from source IP.");
+    }
+
+    if (result == DECISION_NULL) {
+        ErrorMessage("resolve_geo_decision: Final decision is DECISION_NULL.");
+    } else {
+        ErrorMessage(("resolve_geo_decision: Final decision code is " + std::to_string(result) + ".").c_str());
+    }
 
     return result;
 }
-
 
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
     Packet* p, uint32_t& iplist_id)
