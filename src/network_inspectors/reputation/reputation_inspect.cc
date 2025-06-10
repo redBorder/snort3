@@ -183,38 +183,14 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
         std::string ip_string = ip_str;
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
 
-        // Log all info if country is US
-        if (country == "US") {
-            ErrorMessage("[GEOIP] Country: US");
-            ErrorMessage(ip_string.c_str());
-        }
-
         if (country == "Unknown")
             return DECISION_NULL;
 
         auto it = config.geoip_actions.find(country);
         if (it != config.geoip_actions.end()) {
             IPdecision decision = it->second;
-
-            if (country == "US") {
-                std::string direction = is_src ? "SRC" : "DST";
-                ErrorMessage(("[GEOIP] Direction: " + direction + ", Decision: " + std::to_string(decision)).c_str());
-            }
-
-            if (decision == BLOCKED)
-                return is_src ? BLOCKED_SRC : BLOCKED_DST;
-            if (decision == TRUSTED)
-                return is_src ? TRUSTED_SRC : TRUSTED_DST;
-            if (decision == MONITORED)
-                return is_src ? MONITORED_SRC : MONITORED_DST;
-
             return decision;
         }
-
-        if(country == "US"){
-          ErrorMessage("[GEOIP] DECISION ES NULL????");
-        } 
-
         return DECISION_NULL;
     };
 
