@@ -167,7 +167,7 @@ static bool decision_per_layer(const ReputationConfig& config, ReputationData& d
 }
 
 
-static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api, const Packet* p) {
+static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api) {
     auto resolve = [&](const SfIp* ip, bool is_src) {
         if (!ip)
             return DECISION_NULL;
@@ -219,7 +219,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     if (config.nested_ip == INNER) {
         decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
         if (decision_final == DECISION_NULL) {
-            decision_final = resolve_geo_decision(config, p->ptrs.ip_api, p);
+            decision_final = resolve_geo_decision(config, p->ptrs.ip_api);
         }
         return decision_final;
     }
@@ -253,7 +253,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     }
 
     if (decision_final == DECISION_NULL)
-        decision_final = resolve_geo_decision(config, p->ptrs.ip_api, p);
+        decision_final = resolve_geo_decision(config, p->ptrs.ip_api);
 
     if (decision_final != BLOCKED_SRC && decision_final != BLOCKED_DST)
         p->ptrs.ip_api = tmp_api;
@@ -291,7 +291,19 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
         uint32_t iplist_id;
         decision = get_reputation(config, data, result, iplist_id, ingress_intf,
             egress_intf);
-
+        
+        if(decision == DECISION_NULL){
+            decision = resolve_geo_decision(config, p->ptrs.ip_api);
+            if(decision == BLOCKED_SRC || decision == BLOCKED_DST){
+                decision = BLOCKED;
+            }
+            if(decision == MONITORED_SRC || decision == MONITORED_DST){
+                decision = MONITORED;
+            }
+            if(decision == TRUSTED_SRC || decision == TRUSTED_DST){
+                decision = TRUSTED;
+            }
+        }
         if (decision == BLOCKED)
         {
             // Prior to IPRep logging, IPS policy must be set to the default policy,
