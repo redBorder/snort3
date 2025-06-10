@@ -191,6 +191,9 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
 
         bool is_ipv6 = ip_api.is_ip6();
         std::string ip_string = SfIpToString(*ip, is_ipv6);
+        SfIpString ip_str;
+        ip_api.get_src()->ntop(ip_str);
+        std::string ip_string = ip_str;
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
         ErrorMessage(country.c_str());
         ErrorMessage(ip_string.c_str());
