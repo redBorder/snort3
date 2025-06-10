@@ -187,7 +187,8 @@ std::string SfIpToString(const SfIp& ip, bool is_ipv6)
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
     Packet* p, uint32_t& iplist_id)
 {
-    
+
+ ErrorMessage("reputation_desicion");   
     IPdecision decision_final = DECISION_NULL;
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
@@ -239,18 +240,16 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     else
         assert(false); // Should never hit this
 
-    if (decision_final != BLOCKED_SRC and decision_final != BLOCKED_DST)
-        p->ptrs.ip_api = tmp_api;
-    else if (config.nested_ip == ALL and p->ptrs.ip_api != blocked_api)
-        p->ptrs.ip_api = blocked_api;
-
-    p->ip_proto_next = tmp_next;
+ ErrorMessage("reputation_desicion DECISION FINAL");   
 
     if (decision_final == DECISION_NULL) {
         auto resolveGeoDecision = [&](const SfIp* ip, bool is_src) {
             bool is_ipv6 = p->ptrs.ip_api.is_ip6();
             std::string ip_string = SfIpToString(*ip, is_ipv6);
             std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
+             ErrorMessage(country.c_str());   
+             ErrorMessage(ip_string.c_str());   
+
             if (country == "Unknown") return DECISION_NULL;
 
             auto it = config.geoip_actions.find(country);
@@ -268,6 +267,14 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
         if (decision_final == DECISION_NULL)
             decision_final = resolveGeoDecision(p->ptrs.ip_api.get_dst(), false);
     }
+    
+    if (decision_final != BLOCKED_SRC and decision_final != BLOCKED_DST)
+        p->ptrs.ip_api = tmp_api;
+    else if (config.nested_ip == ALL and p->ptrs.ip_api != blocked_api)
+        p->ptrs.ip_api = blocked_api;
+
+    p->ip_proto_next = tmp_next;
+
     return decision_final;
 }
 
