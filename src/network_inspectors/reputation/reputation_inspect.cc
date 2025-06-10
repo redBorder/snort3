@@ -174,17 +174,33 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
 
         bool is_ipv6 = ip_api.is_ip6();
         SfIpString ip_str;
-        
-        if(is_src) ip_api.get_src()->ntop(ip_str);
-        if(!is_src) ip_api.get_dst()->ntop(ip_str);
+
+        if (is_src)
+            ip_api.get_src()->ntop(ip_str);
+        else
+            ip_api.get_dst()->ntop(ip_str);
+
         std::string ip_string = ip_str;
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
 
-        if (country == "Unknown") return DECISION_NULL;
+        // Log all info if country is US
+        if (country == "US") {
+            ErrorMessage("[GEOIP] Country: US");
+            ErrorMessage(ip_string.c_str());
+        }
+
+        if (country == "Unknown")
+            return DECISION_NULL;
 
         auto it = config.geoip_actions.find(country);
         if (it != config.geoip_actions.end()) {
             IPdecision decision = it->second;
+
+            if (country == "US") {
+                std::string direction = is_src ? "SRC" : "DST";
+                ErrorMessage(("[GEOIP] Direction: " + direction + ", Decision: " + std::to_string(decision)).c_str());
+            }
+
             if (decision == BLOCKED)
                 return is_src ? BLOCKED_SRC : BLOCKED_DST;
             if (decision == TRUSTED)
@@ -194,6 +210,7 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
 
             return decision;
         }
+
         return DECISION_NULL;
     };
 
@@ -203,6 +220,7 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
 
     return result;
 }
+
 
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
     Packet* p, uint32_t& iplist_id)
