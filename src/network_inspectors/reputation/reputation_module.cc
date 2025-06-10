@@ -59,6 +59,12 @@ static const Parameter s_params[] =
     { "list_dir", Parameter::PT_STRING, nullptr, nullptr,
       "directory for IP lists and manifest file" },
 
+    { "geoip_db_path", Parameter::PT_STRING, nullptr, nullptr,
+      "directory for load geoip db" },
+
+    { "geoip_manifest_path", Parameter::PT_STRING, nullptr, nullptr,
+      "directory for geoip manifest file" },
+
     { "memcap", Parameter::PT_INT, "1:4095", "500",
       "maximum total MB of memory allocated" },
 
