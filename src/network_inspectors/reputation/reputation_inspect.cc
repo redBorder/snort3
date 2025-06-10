@@ -184,119 +184,88 @@ std::string SfIpToString(const SfIp& ip, bool is_ipv6)
     return std::string(buffer);
 }
 
+static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api, const Packet* p) {
+    auto resolve = [&](const SfIp* ip, bool is_src) {
+        bool is_ipv6 = ip_api.is_ip6();
+        std::string ip_string = SfIpToString(*ip, is_ipv6);
+        std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
+        ErrorMessage(country.c_str());
+        ErrorMessage(ip_string.c_str());
+
+        if (country == "Unknown") return DECISION_NULL;
+
+        auto it = config.geoip_actions.find(country);
+        if (it != config.geoip_actions.end()) {
+            IPdecision decision = it->second;
+            if (decision == BLOCKED)
+                return is_src ? BLOCKED_SRC : BLOCKED_DST;
+            return decision;
+        }
+        return DECISION_NULL;
+    };
+
+    IPdecision result = resolve(ip_api.get_src(), true);
+    if (result == DECISION_NULL)
+        result = resolve(ip_api.get_dst(), false);
+
+    return result;
+}
+
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
     Packet* p, uint32_t& iplist_id)
 {
-
- ErrorMessage("reputation_desicion");   
+    ErrorMessage("reputation_decision");
     IPdecision decision_final = DECISION_NULL;
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
 
-    if (p->pkth)
-    {
+    if (p->pkth) {
         ingress_intf = p->pkth->ingress_index;
-        if (p->pkth->egress_index < 0)
-            egress_intf = ingress_intf;
-        else
-            egress_intf = p->pkth->egress_index;
+        egress_intf = (p->pkth->egress_index < 0) ? ingress_intf : p->pkth->egress_index;
     }
 
-    if (config.nested_ip == INNER)
-    {
+    if (config.nested_ip == INNER) {
         decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
-        ErrorMessage("NESTED_IP GEOIP");
         if (decision_final == DECISION_NULL) {
-            auto resolveGeoDecision = [&](const SfIp* ip, bool is_src) {
-                bool is_ipv6 = p->ptrs.ip_api.is_ip6();
-                std::string ip_string = SfIpToString(*ip, is_ipv6);
-                std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
-                ErrorMessage(country.c_str());
-                ErrorMessage(ip_string.c_str());
-
-                if (country == "Unknown") return DECISION_NULL;
-
-                auto it = config.geoip_actions.find(country);
-                if (it != config.geoip_actions.end()) {
-                    IPdecision decision = it->second;
-                    if (decision == BLOCKED)
-                        return is_src ? BLOCKED_SRC : BLOCKED_DST;
-                    return decision;
-                }
-                return DECISION_NULL;
-            };
-
-            decision_final = resolveGeoDecision(p->ptrs.ip_api.get_src(), true);
-
-            if (decision_final == DECISION_NULL)
-                decision_final = resolveGeoDecision(p->ptrs.ip_api.get_dst(), false);
+            decision_final = resolve_geo_decision(config, p->ptrs.ip_api, p);
         }
         return decision_final;
     }
 
-    // For OUTER or ALL, save current layers, iterate, then restore layers as needed
+    // Save/restore for OUTER or ALL
     ip::IpApi blocked_api;
     ip::IpApi tmp_api = p->ptrs.ip_api;
     int8_t num_layer = 0;
     IpProtocol tmp_next = p->get_ip_proto_next();
 
-    if (config.nested_ip == OUTER)
-    {
+    if (config.nested_ip == OUTER) {
         layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer);
         decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
     }
-    else if (config.nested_ip == ALL)
-    {
+    else if (config.nested_ip == ALL) {
         bool done = false;
         IPdecision decision_current = DECISION_NULL;
 
-        while (!done and layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer))
-        {
+        while (!done && layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer)) {
             done = decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api,
                 &decision_current);
-            if (decision_current != DECISION_NULL)
-            {
-                if (decision_current == BLOCKED_SRC or decision_current == BLOCKED_DST)
+            if (decision_current != DECISION_NULL) {
+                if (decision_current == BLOCKED_SRC || decision_current == BLOCKED_DST)
                     blocked_api = p->ptrs.ip_api;
                 decision_final = decision_current;
                 decision_current = DECISION_NULL;
             }
         }
-    }
-    else
-        assert(false); // Should never hit this
-
- ErrorMessage("reputation_desicion DECISION FINAL");   
-
-    if (decision_final == DECISION_NULL) {
-        auto resolveGeoDecision = [&](const SfIp* ip, bool is_src) {
-            bool is_ipv6 = p->ptrs.ip_api.is_ip6();
-            std::string ip_string = SfIpToString(*ip, is_ipv6);
-            std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
-             ErrorMessage(country.c_str());   
-             ErrorMessage(ip_string.c_str());   
-
-            if (country == "Unknown") return DECISION_NULL;
-
-            auto it = config.geoip_actions.find(country);
-            if (it != config.geoip_actions.end()) {
-                IPdecision decision = it->second;
-                if (decision == BLOCKED)
-                    return is_src ? BLOCKED_SRC : BLOCKED_DST;
-                return decision;
-            }
-            return DECISION_NULL;
-        };
-
-        decision_final = resolveGeoDecision(p->ptrs.ip_api.get_src(), true);
-
-        if (decision_final == DECISION_NULL)
-            decision_final = resolveGeoDecision(p->ptrs.ip_api.get_dst(), false);
+    } else {
+        assert(false); // Should never happen
     }
 
-    if (decision_final != BLOCKED_SRC and decision_final != BLOCKED_DST)
+    if (decision_final == DECISION_NULL)
+        decision_final = resolve_geo_decision(config, p->ptrs.ip_api, p);
+
+    if (decision_final != BLOCKED_SRC && decision_final != BLOCKED_DST)
         p->ptrs.ip_api = tmp_api;
-    else if (config.nested_ip == ALL and p->ptrs.ip_api != blocked_api)
+    else if (config.nested_ip == ALL && p->ptrs.ip_api != blocked_api)
         p->ptrs.ip_api = blocked_api;
 
     p->ip_proto_next = tmp_next;
