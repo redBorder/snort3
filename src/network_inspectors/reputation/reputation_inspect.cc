@@ -203,7 +203,7 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
                 reputationstats.aux_ip_trusted_geo_ip++;
                 return is_src ? TRUSTED_SRC : TRUSTED_DST;
             if (decision == MONITORED)
-                reputationstats.aux_ip_monitored_geo_ip++;
+                 reputationstats.aux_ip_trusted_geo_ip++;
                 return is_src ? MONITORED_SRC : MONITORED_DST;
 
             return decision;
@@ -307,27 +307,18 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
         decision = get_reputation(config, data, result, iplist_id, ingress_intf,
             egress_intf);
         
-        if (decision == DECISION_NULL) {
+        if(decision == DECISION_NULL){
             decision = resolve_geo_decision(config, p->ptrs.ip_api);
-
-            switch (decision) {
-                case BLOCKED_SRC:
-                case BLOCKED_DST:
-                    decision = BLOCKED;
-                    break;
-                case MONITORED_SRC:
-                case MONITORED_DST:
-                    decision = MONITORED;
-                    break;
-                case TRUSTED_SRC:
-                case TRUSTED_DST:
-                    decision = TRUSTED;
-                    break;
-                default:
-                    break;
+            if(decision == BLOCKED_SRC || decision == BLOCKED_DST){
+                decision = BLOCKED;
+            }
+            if(decision == MONITORED_SRC || decision == MONITORED_DST){
+                decision = MONITORED;
+            }
+            if(decision == TRUSTED_SRC || decision == TRUSTED_DST){
+                decision = TRUSTED;
             }
         }
-
         if (decision == BLOCKED)
         {
             // Prior to IPRep logging, IPS policy must be set to the default policy,
