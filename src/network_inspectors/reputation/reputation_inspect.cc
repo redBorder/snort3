@@ -179,8 +179,6 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
         if(!is_src) ip_api.get_dst()->ntop(ip_str);
         std::string ip_string = ip_str;
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
-        ErrorMessage(country.c_str());
-        ErrorMessage(ip_string.c_str());
 
         if (country == "Unknown") return DECISION_NULL;
 
@@ -189,6 +187,11 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
             IPdecision decision = it->second;
             if (decision == BLOCKED)
                 return is_src ? BLOCKED_SRC : BLOCKED_DST;
+            if (decision == TRUSTED)
+                return is_src ? TRUSTED_SRC : TRUSTED_DST;
+            if (decision == MONITORED)
+                return is_src ? MONITORED_SRC : MONITORED_DST;
+                
             return decision;
         }
         return DECISION_NULL;
@@ -204,7 +207,6 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
     Packet* p, uint32_t& iplist_id)
 {
-    ErrorMessage("reputation_decision");
     IPdecision decision_final = DECISION_NULL;
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
@@ -389,7 +391,6 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
 {
     IPdecision decision;
 
-    ErrorMessage("SNORT_REPUTATION");
     if (!data.ip_list && !config.geoip_enabled)
         return;
 
