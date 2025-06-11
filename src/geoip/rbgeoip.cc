@@ -74,7 +74,7 @@ namespace GeoIpLoader {
     }
 
     std::string Manager::getContinentByIP(const std::string& ip_string) {
-        return getFieldByIP(ip_string, "continent_name");
+        return getFieldByIP(ip_string, "continent");
     }
 
 }  // namespace GeoIpLoader
