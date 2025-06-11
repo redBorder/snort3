@@ -55,26 +55,26 @@ namespace GeoIpLoader {
         }
     }
 
-    std::string Manager::getCountryByIP(const std::string& ip_string) {
+    std::string Manager::getFieldByIP(const std::string& ip_string, const std::string& field_key) {
         if (db == nullptr) {
             return "Unknown";
         }
 
         try {
             GeoLite2PP::MStr fields = db->get_all_fields(ip_string);
-            std::string dst_country;
-
-            for (const auto& iter : fields) {
-                if (iter.first == "country_iso_code") {
-                    dst_country = iter.second;
-                    break;
-                }
-            }
-
-            return dst_country.empty() ? "Unknown" : dst_country;
+            auto it = fields.find(field_key);
+            return (it != fields.end() && !it->second.empty()) ? it->second : "Unknown";
         } catch (const std::exception&) {
             return "Unknown";
         }
+    }
+
+    std::string Manager::getCountryByIP(const std::string& ip_string) {
+        return getFieldByIP(ip_string, "country_iso_code");
+    }
+
+    std::string Manager::getContinentByIP(const std::string& ip_string) {
+        return getFieldByIP(ip_string, "continent_name");
     }
 
 }  // namespace GeoIpLoader

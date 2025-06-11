@@ -193,7 +193,8 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
         }
 
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
-        std::string msg = "resolve_geo_decision: Resolved IP " + ip_string + " to country " + country + ".";
+        std::string continent = GeoIpLoader::Manager::getInstance()->getContinentByIP(ip_string);
+        std::string msg = "resolve_geo_decision: Resolved IP " + ip_string + " to country " + country + ". + contunent " + continent;
         ErrorMessage(msg.c_str());
 
         if (country == "Unknown") {
