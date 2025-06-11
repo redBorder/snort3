@@ -43,9 +43,9 @@ namespace GeoIpLoader {
         static Manager* getInstance(const std::string& dbPath = "");
         void loadDB(const std::string& dbPath);
         void unloadDB();
-        std::string Manager::getFieldByIP(const std::string& ip_string, const std::string& field_key);
-        std::string Manager::getCountryByIP(const std::string& ip_string);
-        std::string Manager::getContinentByIP(const std::string& ip_string);
+        std::string getFieldByIP(const std::string& ip_string, const std::string& field_key);
+        std::string getCountryByIP(const std::string& ip_string);
+        std::string getContinentByIP(const std::string& ip_string);
     };
 
 }  // namespace GeoIpLoader
