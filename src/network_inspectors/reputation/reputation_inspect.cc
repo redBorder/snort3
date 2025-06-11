@@ -181,25 +181,20 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
         switch (decision) {
             case BLOCKED:
                 reputationstats.geo_ip_blocked++;
-                ErrorMessage(("resolve_geo_decision: " + key + " is BLOCKED.").c_str());
                 return is_src ? BLOCKED_SRC : BLOCKED_DST;
             case TRUSTED:
                 reputationstats.geo_ip_trusted++;
-                ErrorMessage(("resolve_geo_decision: " + key + " is TRUSTED.").c_str());
                 return is_src ? TRUSTED_SRC : TRUSTED_DST;
             case MONITORED:
                 reputationstats.geo_ip_monitored++;
-                ErrorMessage(("resolve_geo_decision: " + key + " is MONITORED.").c_str());
                 return is_src ? MONITORED_SRC : MONITORED_DST;
             default:
-                ErrorMessage(("resolve_geo_decision: " + key + " has custom decision code " + std::to_string(decision) + ".").c_str());
                 return decision;
         }
     };
 
     auto resolve = [&](const SfIp* ip, bool is_src) -> IPdecision {
         if (!ip) {
-            ErrorMessage(("resolve_geo_decision: IP is null (is_src=" + std::string(is_src ? "true" : "false") + ").").c_str());
             return DECISION_NULL;
         }
 
@@ -211,14 +206,12 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
 
         std::string ip_string = ip_str;
         if (ip_string.empty()) {
-            ErrorMessage(("resolve_geo_decision: Failed to convert IP to string (is_src=" + std::string(is_src ? "true" : "false") + ").").c_str());
             return DECISION_NULL;
         }
 
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
         std::string continent = GeoIpLoader::Manager::getInstance()->getContinentByIP(ip_string);
 
-        ErrorMessage(("resolve_geo_decision: Resolved IP " + ip_string + " to country " + country + ", continent " + continent).c_str());
 
         if (auto decision = apply_decision(country, is_src, config.geoip_actions_countries)) {
             return *decision;
@@ -228,22 +221,12 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
             return *decision;
         }
 
-        ErrorMessage(("resolve_geo_decision: No action configured for country: " + country + " or continent: " + continent).c_str());
         return DECISION_NULL;
     };
 
     IPdecision result = resolve(ip_api.get_src(), true);
     if (result == DECISION_NULL) {
-        ErrorMessage("resolve_geo_decision: Source IP decision was null, checking destination IP.");
         result = resolve(ip_api.get_dst(), false);
-    } else {
-        ErrorMessage("resolve_geo_decision: Decision resolved from source IP.");
-    }
-
-    if (result == DECISION_NULL) {
-        ErrorMessage("resolve_geo_decision: Final decision is DECISION_NULL.");
-    } else {
-        ErrorMessage(("resolve_geo_decision: Final decision code is " + std::to_string(result) + ".").c_str());
     }
 
     return result;
