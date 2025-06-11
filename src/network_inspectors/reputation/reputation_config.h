@@ -93,7 +93,8 @@ struct ReputationConfig
     
     std::string geoip_manifest_path;
     bool geoip_enabled = false;
-    std::unordered_map<std::string, IPdecision> geoip_actions;
+    std::unordered_map<std::string, IPdecision> geoip_actions_countries;
+    std::unordered_map<std::string, IPdecision> geoip_actions_continents;
 };
 
 struct IPrepInfo

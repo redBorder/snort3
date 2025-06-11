@@ -36,7 +36,7 @@
 #include "pub_sub/auxiliary_ip_event.h"
 #include "pub_sub/reputation_events.h"
 #include "utils/util.h"
-
+#include <optional>
 #include "reputation_parse.h"
 #include "geoip/rbgeoip.h"
 
@@ -170,16 +170,40 @@ static bool decision_per_layer(const ReputationConfig& config, ReputationData& d
 }
 
 static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api) {
-    auto resolve = [&](const SfIp* ip, bool is_src) {
+    auto apply_decision = [&](const std::string& key, bool is_src, const auto& action_map) -> std::optional<IPdecision> {
+        auto it = action_map.find(key);
+        if (it == action_map.end()) {
+            return std::nullopt;
+        }
+
+        IPdecision decision = it->second;
+
+        switch (decision) {
+            case BLOCKED:
+                reputationstats.geo_ip_blocked++;
+                ErrorMessage(("resolve_geo_decision: " + key + " is BLOCKED.").c_str());
+                return is_src ? BLOCKED_SRC : BLOCKED_DST;
+            case TRUSTED:
+                reputationstats.geo_ip_trusted++;
+                ErrorMessage(("resolve_geo_decision: " + key + " is TRUSTED.").c_str());
+                return is_src ? TRUSTED_SRC : TRUSTED_DST;
+            case MONITORED:
+                reputationstats.geo_ip_monitored++;
+                ErrorMessage(("resolve_geo_decision: " + key + " is MONITORED.").c_str());
+                return is_src ? MONITORED_SRC : MONITORED_DST;
+            default:
+                ErrorMessage(("resolve_geo_decision: " + key + " has custom decision code " + std::to_string(decision) + ".").c_str());
+                return decision;
+        }
+    };
+
+    auto resolve = [&](const SfIp* ip, bool is_src) -> IPdecision {
         if (!ip) {
-            std::string msg = "resolve_geo_decision: IP is null (is_src=" + std::string(is_src ? "true" : "false") + ").";
-            ErrorMessage(msg.c_str());
+            ErrorMessage(("resolve_geo_decision: IP is null (is_src=" + std::string(is_src ? "true" : "false") + ").").c_str());
             return DECISION_NULL;
         }
 
-        bool is_ipv6 = ip_api.is_ip6();
         SfIpString ip_str;
-
         if (is_src)
             ip_api.get_src()->ntop(ip_str);
         else
@@ -187,47 +211,24 @@ static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi
 
         std::string ip_string = ip_str;
         if (ip_string.empty()) {
-            std::string msg = "resolve_geo_decision: Failed to convert IP to string (is_src=" + std::string(is_src ? "true" : "false") + ").";
-            ErrorMessage(msg.c_str());
+            ErrorMessage(("resolve_geo_decision: Failed to convert IP to string (is_src=" + std::string(is_src ? "true" : "false") + ").").c_str());
             return DECISION_NULL;
         }
 
         std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
         std::string continent = GeoIpLoader::Manager::getInstance()->getContinentByIP(ip_string);
-        std::string msg = "resolve_geo_decision: Resolved IP " + ip_string + " to country " + country + ". + contunent " + continent;
-        ErrorMessage(msg.c_str());
 
-        if (country == "Unknown") {
-            std::string msg = "resolve_geo_decision: Country is Unknown for IP: " + ip_string;
-            ErrorMessage(msg.c_str());
-            return DECISION_NULL;
+        ErrorMessage(("resolve_geo_decision: Resolved IP " + ip_string + " to country " + country + ", continent " + continent).c_str());
+
+        if (auto decision = apply_decision(country, is_src, config.geoip_actions_countries)) {
+            return *decision;
         }
 
-        auto it = config.geoip_actions.find(country);
-        if (it != config.geoip_actions.end()) {
-            IPdecision decision = it->second;
-
-            switch (decision) {
-                case BLOCKED:
-                    reputationstats.geo_ip_blocked++;
-                    ErrorMessage(("resolve_geo_decision: Country " + country + " is BLOCKED.").c_str());
-                    return is_src ? BLOCKED_SRC : BLOCKED_DST;
-                case TRUSTED:
-                    reputationstats.geo_ip_trusted++;
-                    ErrorMessage(("resolve_geo_decision: Country " + country + " is TRUSTED.").c_str());
-                    return is_src ? TRUSTED_SRC : TRUSTED_DST;
-                case MONITORED:
-                    reputationstats.geo_ip_monitored++;
-                    ErrorMessage(("resolve_geo_decision: Country " + country + " is MONITORED.").c_str());
-                    return is_src ? MONITORED_SRC : MONITORED_DST;
-                default:
-                    ErrorMessage(("resolve_geo_decision: Country " + country + " has custom decision code " + std::to_string(decision) + ".").c_str());
-                    return decision;
-            }
-        } else {
-            ErrorMessage(("resolve_geo_decision: No geoip action configured for country: " + country).c_str());
+        if (auto decision = apply_decision(continent, is_src, config.geoip_actions_continents)) {
+            return *decision;
         }
 
+        ErrorMessage(("resolve_geo_decision: No action configured for country: " + country + " or continent: " + continent).c_str());
         return DECISION_NULL;
     };
 
