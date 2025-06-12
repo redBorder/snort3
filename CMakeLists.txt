@@ -222,9 +222,9 @@ if (HAVE_CPR)
  
  if (HAVE_AWS)
      message("\
-     CPR:            ON")
+     AWS:            ON")
  else ()
      message("\
-     CPR:            OFF")
+     AWS:            OFF")
  endif ()
 message("-------------------------------------------------------\n")

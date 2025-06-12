@@ -36,6 +36,7 @@
 #include <queue>
 #include <thread>
 #include <aws/s3/S3Client.h>
+#include <aws/core/Aws.h>
 
 #include "file_api.h"
 
@@ -54,7 +55,7 @@ struct FileCaptureBlock
 class SO_PUBLIC FileCapture
 {
 public:
-    FileCapture::FileCapture(
+    FileCapture(
         int64_t min_size,
         int64_t max_size,
         const std::string& access_key_id,

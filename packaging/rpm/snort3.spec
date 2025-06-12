@@ -77,7 +77,7 @@ export AM_CFLAGS="-g -O2"
 export LDFLAGS="-Wl,--copy-dt-needed-entries"
 #updatedb
 #locate cpr
-./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell --with-cpr-includes=/usr/include/cpr/ --with-pcap-libraries=/usr/lib64/ --with-pcap-includes=/usr/include/pcap/
+./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell --with-aws-includes=/usr/include --with-aws-libraries=/usr/lib64 --with-cpr-includes=/usr/include/cpr/ --with-pcap-libraries=/usr/lib64/ --with-pcap-includes=/usr/include/pcap/
 # --disable-gdb
 cd ./build
 %{make_build} VERBOSE=1

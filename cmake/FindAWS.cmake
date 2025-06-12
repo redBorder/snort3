@@ -1,20 +1,31 @@
-find_package(PkgConfig)
-pkg_check_modules(PC_AWS REQUIRED aws-cpp-sdk-core aws-cpp-sdk-s3)
+# FindAWS.cmake
 
-# Include directories
+find_package(PkgConfig)
+
+# We do NOT rely on pkg-config include/lib dirs since they are empty on your system.
+# Instead, use hints passed from outside or defaults.
+
+if(NOT DEFINED AWS_INCLUDE_DIR_HINT)
+  set(AWS_INCLUDE_DIR_HINT "/usr/lib/include")
+endif()
+
+if(NOT DEFINED AWS_LIBRARIES_DIR_HINT)
+  set(AWS_LIBRARIES_DIR_HINT "/usr/lib/lib64")
+endif()
+
 find_path(AWS_INCLUDE_DIR
   NAMES aws/core/Aws.h
-  HINTS ${PC_AWS_INCLUDEDIR}
+  HINTS ${AWS_INCLUDE_DIR_HINT}
 )
 
 find_library(AWS_CORE_LIBRARY
   NAMES aws-cpp-sdk-core
-  HINTS ${PC_AWS_LIBDIR}
+  HINTS ${AWS_LIBRARIES_DIR_HINT}
 )
 
 find_library(AWS_S3_LIBRARY
   NAMES aws-cpp-sdk-s3
-  HINTS ${PC_AWS_LIBDIR}
+  HINTS ${AWS_LIBRARIES_DIR_HINT}
 )
 
 if (AWS_INCLUDE_DIR AND AWS_CORE_LIBRARY AND AWS_S3_LIBRARY)
@@ -30,6 +41,10 @@ mark_as_advanced(
   AWS_CORE_LIBRARY
   AWS_S3_LIBRARY
 )
+
+message(STATUS "AWS_INCLUDE_DIR = ${AWS_INCLUDE_DIR}")
+message(STATUS "AWS_CORE_LIBRARY = ${AWS_CORE_LIBRARY}")
+message(STATUS "AWS_S3_LIBRARY = ${AWS_S3_LIBRARY}")
 
 if (HAVE_AWS)
   add_library(AWS::Core UNKNOWN IMPORTED)
