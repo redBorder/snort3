@@ -99,6 +99,30 @@ static const Parameter file_id_params[] =
     { "decompress_buffer_size", Parameter::PT_INT, "1024:max31", "100000",
       "file decompression buffer size" },
 
+    { "access_key_id", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 access key ID" },
+
+    { "secret_access_key", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 secret access key" },
+
+    { "region", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 region" },
+
+    { "bucket_name", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 bucket name" },
+
+    { "endpoint", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 custom endpoint" },
+
+    { "verify_ssl", Parameter::PT_BOOL, nullptr, "true",
+      "Verify SSL certificate for AWS S3 connection" },
+
+    { "https_scheme", Parameter::PT_BOOL, nullptr, "true",
+      "Use HTTPS scheme for AWS S3 connection" },
+
+    { "enable_s3", Parameter::PT_BOOL, nullptr, "false",
+      "Enable S3 upload support" },
+
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
