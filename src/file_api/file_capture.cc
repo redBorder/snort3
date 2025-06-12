@@ -128,30 +128,26 @@ FileCapture::FileCapture(
 
         Aws::InitAPI(options);
 
+        Aws::Auth::AWSCredentials credentials(access_key_id.c_str(), secret_access_key.c_str());
+
         Aws::Client::ClientConfiguration client_config;
         client_config.region = region;
         client_config.endpointOverride = endpoint;
 
-        if(!httpsScheme)
-            client_config.scheme = Aws::Http::Scheme::HTTP;
-        else
-            client_config.scheme = Aws::Http::Scheme::HTTPS;
+        client_config.scheme = httpsScheme ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
+        client_config.verifySSL = verifySsl;
 
-        if(!verifySsl)
-            client_config.verifySSL = false;
-        else
-            client_config.verifySSL = true;
-
-        Aws::Auth::AWSCredentials credentials(access_key_id, secret_access_key);
-        auto credentials_provider = Aws::MakeShared<Aws::Auth::SimpleAWSCredentialsProvider>(
-            "redBorderIntrusion", credentials);
-
-        s3_client = std::make_unique<Aws::S3::S3Client>(credentials_provider, client_config,
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+        s3_client = std::make_unique<Aws::S3::S3Client>(
+            credentials,
+            client_config,
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+            false
+        );
 
         store_s3 = true;
     }
 }
+
 
 
 FileCapture::~FileCapture()
@@ -574,75 +570,38 @@ void FileCapture::store_file()
 
 void FileCapture::store_file_s3()
 {
-    if (!store_s3 || !file_info || !s3_client)
+    if (!store_s3 || !file_info)
         return;
 
     const std::string& object_key = file_info->get_file_name();
     if (object_key.empty())
         return;
 
-    Aws::S3::Model::CreateMultipartUploadRequest create_request;
-    create_request.SetBucket(s3_bucket_name);
-    create_request.SetKey(object_key);
-
-    auto create_outcome = s3_client->CreateMultipartUpload(create_request);
-    if (!create_outcome.IsSuccess()) {
-        return;
-    }
-
-    Aws::String upload_id = create_outcome.GetResult().GetUploadId();
-    std::vector<Aws::S3::Model::CompletedPart> completed_parts;
-
-    uint8_t* buffer = nullptr;
-    int size = 0;
-    void* file_mem = nullptr;
-    int part_number = 1;
-
-    do {
-        file_mem = get_file_data(&buffer, &size);
-        if (!buffer || size <= 0)
-            break;
-
-        Aws::S3::Model::UploadPartRequest upload_request;
-        upload_request.SetBucket(s3_bucket_name);
-        upload_request.SetKey(object_key);
-        upload_request.SetUploadId(upload_id);
-        upload_request.SetPartNumber(part_number);
-
-        auto stream = Aws::MakeShared<Aws::StringStream>("UploadPart");
-        stream->write(reinterpret_cast<char*>(buffer), size);
-        upload_request.SetBody(stream);
-        upload_request.SetContentLength(static_cast<long>(size));
-
-        auto upload_outcome = s3_client->UploadPart(upload_request);
-        if (!upload_outcome.IsSuccess()) {
-            break;
+    Aws::SDKOptions options;
+    Aws::InitAPI(options);
+    
+    {
+        uint8_t* buffer = nullptr;
+        int size = 0;
+        void* file_mem = get_file_data(&buffer, &size);
+        if (!buffer || size <= 0) {
+            Aws::ShutdownAPI(options);
+            return;
         }
 
-        Aws::S3::Model::CompletedPart part;
-        part.SetPartNumber(part_number);
-        part.SetETag(upload_outcome.GetResult().GetETag());
-        completed_parts.push_back(part);
-        ++part_number;
-    } while (file_mem);
+        Aws::S3::Model::PutObjectRequest request;
+        request.SetBucket(Aws::String(s3_bucket_name.c_str()));
+        request.SetKey(Aws::String(object_key.c_str()));
 
-    if (completed_parts.empty()) {
-        return;
+        auto stream = Aws::MakeShared<Aws::StringStream>("UploadTag");
+        stream->write(reinterpret_cast<char*>(buffer), size);
+        request.SetBody(stream);
+        request.SetContentLength(size);
+
+        auto outcome = s3_client->PutObject(request);
     }
 
-    Aws::S3::Model::CompleteMultipartUploadRequest complete_request;
-    complete_request.SetBucket(s3_bucket_name);
-    complete_request.SetKey(object_key);
-    complete_request.SetUploadId(upload_id);
-
-    Aws::S3::Model::CompletedMultipartUpload multipart;
-    multipart.SetParts(completed_parts);
-    complete_request.SetMultipartUpload(multipart);
-
-    auto complete_outcome = s3_client->CompleteMultipartUpload(complete_request);
-    if (!complete_outcome.IsSuccess()) {
-        return;
-    };
+    Aws::ShutdownAPI(options);
 }
 
 // Queue files to be stored to disk
