@@ -13,6 +13,7 @@ find_package(ZLIB REQUIRED)
 find_package(geoLite2pp REQUIRED)
 find_package(Rdkafka REQUIRED)
 find_package(CPR QUIET)
+find_package(AWS QUIET)
 
 if (ENABLE_UNIT_TESTS)
     find_package(CppUTest REQUIRED)

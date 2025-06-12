@@ -220,4 +220,11 @@ if (HAVE_CPR)
      CPR:            OFF")
  endif ()
  
+ if (HAVE_AWS)
+     message("\
+     CPR:            ON")
+ else ()
+     message("\
+     CPR:            OFF")
+ endif ()
 message("-------------------------------------------------------\n")
