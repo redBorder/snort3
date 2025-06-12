@@ -48,11 +48,11 @@
 #endif
 
 #include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/client/ClientConfiguration.h>
 #include <aws/s3/S3Client.h>
-#include <aws/s3/model/CreateMultipartUploadRequest.h>
-#include <aws/s3/model/UploadPartRequest.h>
-#include <aws/s3/model/CompleteMultipartUploadRequest.h>
-#include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
 
 using namespace snort;
 
@@ -131,7 +131,7 @@ FileCapture::FileCapture(
         Aws::Client::ClientConfiguration client_config;
         client_config.region = region;
         client_config.endpointOverride = endpoint;
-        
+
         if(!httpsScheme)
             client_config.scheme = Aws::Http::Scheme::HTTP;
         else
