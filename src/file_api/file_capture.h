@@ -35,6 +35,7 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <aws/s3/S3Client.h>
 
 #include "file_api.h"
 
@@ -53,7 +54,18 @@ struct FileCaptureBlock
 class SO_PUBLIC FileCapture
 {
 public:
-    FileCapture(int64_t capture_min_size, int64_t capture_max_size);
+    FileCapture::FileCapture(
+        int64_t min_size,
+        int64_t max_size,
+        const std::string& access_key_id,
+        const std::string& secret_access_key,
+        const std::string& region,
+        const std::string& bucket_name,
+        const std::string& endpoint,
+        bool verifySsl,
+        bool httpsScheme,
+        bool enable_s3
+    );
     ~FileCapture();
 
     // this must be called during snort init
@@ -76,7 +88,8 @@ public:
 
     // Store files on local disk
     void store_file();
-
+    // Store file on s3
+    void store_file_s3();
     // Store file to disk asynchronously
     void store_file_async();
 
@@ -113,7 +126,7 @@ private:
     static std::thread* file_storer;
     static std::queue<FileCapture*> files_waiting;
     static bool running;
-
+    static bool store_s3;
     uint64_t capture_size;
     FileCaptureBlock* last;  /* last block of file data */
     FileCaptureBlock* head;  /* first block of file data */
@@ -124,6 +137,9 @@ private:
     snort::FileInfo* file_info = nullptr;
     int64_t capture_min_size;
     int64_t capture_max_size;
+    std::string s3_bucket_name;
+    std::unique_ptr<Aws::S3::S3Client> s3_client;
+    Aws::SDKOptions options;
 };
 }
 

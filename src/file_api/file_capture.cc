@@ -47,6 +47,13 @@
 #include "catch/snort_catch.h"
 #endif
 
+#include <aws/core/Aws.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
+#include <aws/s3/model/UploadPartRequest.h>
+#include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
+
 using namespace snort;
 
 FileMemPool* FileCapture::file_mempool = nullptr;
@@ -57,6 +64,7 @@ std::condition_variable FileCapture::capture_cv;
 std::thread* FileCapture::file_storer = nullptr;
 std::queue<FileCapture*> FileCapture::files_waiting;
 bool FileCapture::running = true;
+bool FileCapture::store_s3 = false;
 
 FileCaptureState FileCapture::error_capture(FileCaptureState state)
 {
@@ -85,21 +93,66 @@ void FileCapture::writer_thread()
         files_waiting.pop();
         lk.unlock();
 
-        file->store_file();
+        if(store_s3){
+            file->store_file_s3();
+        } else {
+            file->store_file();
+        }
         delete file;
     }
 }
 
-FileCapture::FileCapture(int64_t min_size, int64_t max_size)
-{
+FileCapture::FileCapture(
+    int64_t min_size,
+    int64_t max_size,
+    const std::string& access_key_id,
+    const std::string& secret_access_key,
+    const std::string& region,
+    const std::string& bucket_name,
+    const std::string& endpoint,
+    bool verifySsl,
+    bool httpsScheme,
+    bool enable_s3
+) {
+    capture_min_size = min_size;
+    capture_max_size = max_size;
     capture_size = 0;
     last = head = nullptr;
     current_data = nullptr;
     current_data_len = 0;
     capture_state = FILE_CAPTURE_SUCCESS;
-    capture_min_size = min_size;
-    capture_max_size = max_size;
+    store_s3 = false;
+
+    if (enable_s3) {
+        s3_bucket_name = bucket_name;
+
+        Aws::InitAPI(options);
+
+        Aws::Client::ClientConfiguration client_config;
+        client_config.region = region;
+        client_config.endpointOverride = endpoint;
+        
+        if(!httpsScheme)
+            client_config.scheme = Aws::Http::Scheme::HTTP;
+        else
+            client_config.scheme = Aws::Http::Scheme::HTTPS;
+
+        if(!verifySsl)
+            client_config.verifySSL = false;
+        else
+            client_config.verifySSL = true;
+
+        Aws::Auth::AWSCredentials credentials(access_key_id, secret_access_key);
+        auto credentials_provider = Aws::MakeShared<Aws::Auth::SimpleAWSCredentialsProvider>(
+            "redBorderIntrusion", credentials);
+
+        s3_client = std::make_unique<Aws::S3::S3Client>(credentials_provider, client_config,
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+
+        store_s3 = true;
+    }
 }
+
 
 FileCapture::~FileCapture()
 {
@@ -130,6 +183,8 @@ FileCapture::~FileCapture()
     }
 
     head = last = nullptr;
+
+    Aws::ShutdownAPI(options);
 
     if (file_info)
         delete file_info;
@@ -473,6 +528,7 @@ void FileCapture::write_file_data(uint8_t* buf, size_t buf_len, FILE* fh)
     }
 }
 
+
 // Store files on local disk
 void FileCapture::store_file()
 {
@@ -514,6 +570,79 @@ void FileCapture::store_file()
     while (file_mem);
 
     fclose(fh);
+}
+
+void FileCapture::store_file_s3()
+{
+    if (!store_s3 || !file_info || !s3_client)
+        return;
+
+    const std::string& object_key = file_info->get_file_name();
+    if (object_key.empty())
+        return;
+
+    Aws::S3::Model::CreateMultipartUploadRequest create_request;
+    create_request.SetBucket(s3_bucket_name);
+    create_request.SetKey(object_key);
+
+    auto create_outcome = s3_client->CreateMultipartUpload(create_request);
+    if (!create_outcome.IsSuccess()) {
+        return;
+    }
+
+    Aws::String upload_id = create_outcome.GetResult().GetUploadId();
+    std::vector<Aws::S3::Model::CompletedPart> completed_parts;
+
+    uint8_t* buffer = nullptr;
+    int size = 0;
+    void* file_mem = nullptr;
+    int part_number = 1;
+
+    do {
+        file_mem = get_file_data(&buffer, &size);
+        if (!buffer || size <= 0)
+            break;
+
+        Aws::S3::Model::UploadPartRequest upload_request;
+        upload_request.SetBucket(s3_bucket_name);
+        upload_request.SetKey(object_key);
+        upload_request.SetUploadId(upload_id);
+        upload_request.SetPartNumber(part_number);
+
+        auto stream = Aws::MakeShared<Aws::StringStream>("UploadPart");
+        stream->write(reinterpret_cast<char*>(buffer), size);
+        upload_request.SetBody(stream);
+        upload_request.SetContentLength(static_cast<long>(size));
+
+        auto upload_outcome = s3_client->UploadPart(upload_request);
+        if (!upload_outcome.IsSuccess()) {
+            break;
+        }
+
+        Aws::S3::Model::CompletedPart part;
+        part.SetPartNumber(part_number);
+        part.SetETag(upload_outcome.GetResult().GetETag());
+        completed_parts.push_back(part);
+        ++part_number;
+    } while (file_mem);
+
+    if (completed_parts.empty()) {
+        return;
+    }
+
+    Aws::S3::Model::CompleteMultipartUploadRequest complete_request;
+    complete_request.SetBucket(s3_bucket_name);
+    complete_request.SetKey(object_key);
+    complete_request.SetUploadId(upload_id);
+
+    Aws::S3::Model::CompletedMultipartUpload multipart;
+    multipart.SetParts(completed_parts);
+    complete_request.SetMultipartUpload(multipart);
+
+    auto complete_outcome = s3_client->CompleteMultipartUpload(complete_request);
+    if (!complete_outcome.IsSuccess()) {
+        return;
+    };
 }
 
 // Queue files to be stored to disk

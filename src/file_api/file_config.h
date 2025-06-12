@@ -71,6 +71,16 @@ public:
     bool trace_stream = false;
     SnortProtocolId snort_protocol_id = UNKNOWN_PROTOCOL_ID;
 
+    /* redBorder */
+    std::string access_key_id;
+    std::string secret_access_key;
+    std::string region;
+    std::string bucket_name;
+    std::string endpoint;
+    bool verifySsl = false;
+    bool httpsScheme = false;
+    bool enable_s3 = false;
+
 private:
     FileIdentifier fileIdentifier;
 };

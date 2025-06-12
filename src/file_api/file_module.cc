@@ -208,6 +208,30 @@ bool FileIdModule::set(const char*, Value& v, SnortConfig*)
     else if ( v.is("decompress_buffer_size") )
         FileService::decode_conf.set_decompress_buffer_size(v.get_uint32());
 
+    else if (v.is("access_key_id"))
+        fc->access_key_id = v.get_string();
+
+    else if (v.is("secret_access_key"))
+        fc->secret_access_key = v.get_string();
+
+    else if (v.is("region"))
+        fc->region = v.get_string();
+
+    else if (v.is("bucket_name"))
+        fc->bucket_name = v.get_string();
+
+    else if (v.is("endpoint"))
+        fc->endpoint = v.get_string();
+
+    else if (v.is("verify_ssl"))
+        fc->verifySsl = v.get_bool();
+
+    else if (v.is("https_scheme"))
+        fc->httpsScheme = v.get_bool();
+
+    else if (v.is("enable_s3"))
+        fc->enable_s3 = v.get_bool();
+        
     else if ( v.is("rules_file") )
     {
         magic_file = "include ";

@@ -770,8 +770,18 @@ FileCaptureState FileContext::process_file_capture(const uint8_t* file_data,
 {
     if (!file_capture)
     {
-        file_capture = new FileCapture(config->capture_min_size,
-            config->capture_max_size);
+        file_capture = new FileCapture(
+            config->capture_min_size,
+            config->capture_max_size,
+            config->access_key_id,
+            config->secret_access_key,
+            config->region,
+            config->bucket_name,
+            config->endpoint,
+            config->verifySsl,
+            config->httpsScheme,
+            config->enable_s3
+        );
     }
 
     file_state.capture_state =
