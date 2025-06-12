@@ -36,6 +36,12 @@ list(APPEND EXTERNAL_LIBRARIES
      OpenSSL::SSL
      OpenSSL::Crypto)
 
+
+list(APPEND EXTERNAL_LIBRARIES
+     AWS::S3
+     AWS::Core
+)
+ 
 list(APPEND EXTERNAL_INCLUDES
      ${OpenSSL_INCLUDE_DIR})
 
