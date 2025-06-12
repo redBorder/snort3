@@ -756,6 +756,15 @@ void ReputationParser::add_block_allow_List(const ReputationConfig& config, Repu
         listItem->list_id = 0;
         data.list_files.emplace_back(listItem);
     }
+    if (config.monitorlist_path.size())
+    {
+        ListFile* listItem = new ListFile;
+        listItem->all_intfs_enabled = true;
+        listItem->file_name = config.monitorlist_path;
+        listItem->file_type = MONITOR_LIST;
+        listItem->list_id = 0;
+        data.list_files.emplace_back(listItem);
+    }
 }
 
 /*Ignore the space characters from string*/

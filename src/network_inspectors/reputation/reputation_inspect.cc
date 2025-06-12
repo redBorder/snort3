@@ -655,6 +655,7 @@ void Reputation::show(const SnortConfig*) const
     ConfigLogger::log_flag("scan_local", config.scanlocal);
     ConfigLogger::log_value("allow (action)", to_string(config.allow_action));
     ConfigLogger::log_value("allowlist", config.allowlist_path.c_str());
+    ConfigLogger::log_value("monitorlist", config.monitorlist_path.c_str());
 }
 
 bool Reputation::configure(SnortConfig*)

@@ -86,6 +86,7 @@ struct ReputationConfig
     AllowAction allow_action = DO_NOT_BLOCK;
     std::string blocklist_path;
     std::string allowlist_path;
+    std::string monitorlist_path;
     std::string list_dir;
     
     /* redBorder GeoIP */

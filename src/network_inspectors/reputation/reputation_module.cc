@@ -83,6 +83,9 @@ static const Parameter s_params[] =
     { "allowlist", Parameter::PT_STRING, nullptr, nullptr,
       "allowlist file name with IP lists" },
 
+    { "monitorlist", Parameter::PT_STRING, nullptr, nullptr,
+      "monitorlist file name with IP lists" },
+
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
@@ -160,6 +163,9 @@ bool ReputationModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("allowlist") )
         conf->allowlist_path = v.get_string();
+
+    else if ( v.is("monitorlist") )
+        conf->monitorlist_path = v.get_string();
 
     return true;
 }
