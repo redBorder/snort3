@@ -185,6 +185,44 @@ std::string& FileInfo::get_file_name()
     return file_name;
 }
 
+std::string FileInfo::get_real_file_name()
+{
+    std::string result;
+    const char* fname = file_name.c_str();
+    size_t fname_len = file_name.length();
+
+    size_t pos = 0;
+    while (pos < fname_len)
+    {
+        if (isprint((int)fname[pos]))
+        {
+            result += fname[pos];
+            pos++;
+        }
+        else
+        {
+            result += "|";
+            bool add_space = false;
+            while ((pos < fname_len) && !isprint((int)fname[pos]))
+            {
+                int ch = 0xff & fname[pos];
+                if (add_space)
+                    result += " ";
+                else
+                    add_space = true;
+
+                std::ostringstream hex_stream;
+                hex_stream << std::uppercase << std::setfill('0') << std::setw(2) << std::hex << ch;
+                result += hex_stream.str();
+                pos++;
+            }
+            result += "|";
+        }
+    }
+
+    return result;
+}
+
 std::string& FileInfo::get_url()
 {
     return url;
@@ -780,7 +818,8 @@ FileCaptureState FileContext::process_file_capture(const uint8_t* file_data,
             config->endpoint,
             config->verifySsl,
             config->httpsScheme,
-            config->enable_s3
+            config->enable_s3,
+            config->use_real_name
         );
     }
 

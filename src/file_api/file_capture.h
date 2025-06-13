@@ -64,7 +64,9 @@ public:
         const std::string& endpoint,
         bool verifySsl,
         bool httpsScheme,
-        bool enable_s3
+        bool enable_s3,
+        bool use_real_name
+       // bool store_file_sync
     );
     ~FileCapture();
 
@@ -78,6 +80,7 @@ public:
 
     // Preserve the file in memory until it is released
     FileCaptureState reserve_file(const snort::FileInfo*);
+    FileCaptureState reserve_file_s3(const FileInfo* file);
 
     // Get the file that is reserved in memory, this should be called repeatedly
     // until nullptr is returned to get the full file
@@ -127,6 +130,7 @@ private:
     static std::queue<FileCapture*> files_waiting;
     static bool running;
     static bool store_s3;
+    static bool capture_real_name;
     uint64_t capture_size;
     FileCaptureBlock* last;  /* last block of file data */
     FileCaptureBlock* head;  /* first block of file data */

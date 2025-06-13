@@ -40,6 +40,7 @@
 #include "file_stats.h"
 
 #include "parser/parser.h"
+#include <iostream>
 
 using namespace snort;
 
@@ -122,6 +123,9 @@ static const Parameter file_id_params[] =
 
     { "enable_s3", Parameter::PT_BOOL, nullptr, "false",
       "Enable S3 upload support" },
+
+    { "use_real_name", Parameter::PT_BOOL, nullptr, "false",
+      "Enable use real name (download payload not hash)" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
@@ -255,6 +259,10 @@ bool FileIdModule::set(const char*, Value& v, SnortConfig*)
 
     else if (v.is("enable_s3"))
         fc->enable_s3 = v.get_bool();
+
+    else if (v.is("use_real_name")) {
+        fc->use_real_name = v.get_bool();
+    }
         
     else if ( v.is("rules_file") )
     {
