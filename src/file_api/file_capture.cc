@@ -500,7 +500,6 @@ void FileCapture::store_file()
     std::string file_full_name;
     file_full_name = file_info->get_file_name();
 
-    std::cout << file_full_name << std::endl;
     /*Check whether the file exists*/
     struct stat buffer;
     if (stat (file_full_name.c_str(), &buffer) == 0)
@@ -558,7 +557,6 @@ void FileCapture::store_file_s3()
             body.append(reinterpret_cast<char*>(buffer), size);
         }
     } while (file_mem);
-    std::cout << object_key << std::endl;
 
     if (body.empty())
         return;
