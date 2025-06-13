@@ -47,7 +47,7 @@ SimpleS3UploaderV4::SimpleS3UploaderV4(
     secretKey_ = secretKey.empty() ? getenvOrThrow("AWS_SECRET_ACCESS_KEY") : secretKey;
 }
 
-cpr::Response SimpleS3UploaderV4::putObject(
+cpr::AsyncResponse SimpleS3UploaderV4::putObjectAsync(
     const std::string& objectKey,
     const std::string& body,
     const std::string& contentType)
@@ -83,7 +83,7 @@ cpr::Response SimpleS3UploaderV4::putObject(
 
     std::string fullUrl = scheme_ + "://" + host_ + canonicalUri;
 
-    cpr::Response response = cpr::Put(
+    cpr::AsyncResponse async_response = cpr::PutAsync(
         cpr::Url{fullUrl},
         cpr::Body{body},
         cpr::Header{
@@ -96,7 +96,7 @@ cpr::Response SimpleS3UploaderV4::putObject(
         cpr::VerifySsl{verifySsl_}
     );
     
-    return response;
+    return async_response;
 }
 
 std::string SimpleS3UploaderV4::getenvOrThrow(const std::string& name) {

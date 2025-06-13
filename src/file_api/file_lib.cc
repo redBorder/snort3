@@ -60,6 +60,7 @@
 using namespace snort;
 
 THREAD_LOCAL ProfileStats file_perf_stats;
+std::shared_ptr<SimpleS3UploaderV4> shared_s3_uploader = nullptr;
 
 // Convert UTF16-LE file name to UTF-8.
 // Returns allocated name. Caller responsible for freeing the buffer.
@@ -808,19 +809,28 @@ FileCaptureState FileContext::process_file_capture(const uint8_t* file_data,
 {
     if (!file_capture)
     {
+        if (!shared_s3_uploader && config->enable_s3) {
+            std::string scheme = config->httpsScheme ? "https" : "http";
+
+            shared_s3_uploader = std::make_shared<SimpleS3UploaderV4>(
+                config->bucket_name,
+                config->region,
+                config->endpoint,
+                scheme,
+                config->verifySsl,
+                config->access_key_id,
+                config->secret_access_key
+            );
+        }
+
         file_capture = new FileCapture(
             config->capture_min_size,
             config->capture_max_size,
-            config->access_key_id,
-            config->secret_access_key,
-            config->region,
-            config->bucket_name,
-            config->endpoint,
-            config->verifySsl,
-            config->httpsScheme,
             config->enable_s3,
-            config->use_real_name
+            config->use_real_name,
+            shared_s3_uploader
         );
+
     }
 
     file_state.capture_state =
@@ -839,6 +849,9 @@ void FileContext::stop_file_capture()
         delete file_capture;
         file_capture = nullptr;
     }
+
+    std::cout << "Stop file capture" << std::endl;
+    shared_s3_uploader.reset();
 
     config_file_capture(false);
 }

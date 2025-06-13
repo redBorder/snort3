@@ -34,7 +34,7 @@ public:
                        const std::string& accessKey = "",
                        const std::string& secretKey = "");
 
-    cpr::Response putObject(const std::string& objectKey, const std::string& body, const std::string& contentType = "text/plain");
+    cpr::AsyncResponse putObjectAsync(const std::string& objectKey, const std::string& body, const std::string& contentType = "text/plain");
 
 private:
     std::string accessKey_;

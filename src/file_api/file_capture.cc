@@ -102,16 +102,10 @@ void FileCapture::writer_thread()
 FileCapture::FileCapture(
     int64_t min_size,
     int64_t max_size,
-    const std::string& access_key_id,
-    const std::string& secret_access_key,
-    const std::string& region,
-    const std::string& bucket_name,
-    const std::string& endpoint,
-    bool verifySsl,
-    bool httpsScheme,
     bool enable_s3,
-    bool use_real_name
-) {
+    bool use_real_name,
+    std::shared_ptr<SimpleS3UploaderV4> s3_uploader_ptr
+) : s3_uploader(std::move(s3_uploader_ptr)) {
     capture_min_size = min_size;
     capture_max_size = max_size;
     capture_real_name = use_real_name;
@@ -120,28 +114,9 @@ FileCapture::FileCapture(
     current_data = nullptr;
     current_data_len = 0;
     capture_state = FILE_CAPTURE_SUCCESS;
-    store_s3 = false;
 
-    if (enable_s3) {
-        s3_bucket_name = bucket_name;
-
-        std::string scheme = httpsScheme ? "https" : "http";
-        std::string host = endpoint;
-
-        s3_uploader = std::make_unique<SimpleS3UploaderV4>(
-            bucket_name,
-            region,
-            host,
-            scheme,
-            verifySsl,
-            access_key_id,
-            secret_access_key
-        );
-
-        store_s3 = true;
-    }
+    store_s3 = enable_s3 && static_cast<bool>(s3_uploader);
 }
-
 
 FileCapture::~FileCapture()
 {
@@ -583,11 +558,12 @@ void FileCapture::store_file_s3()
             body.append(reinterpret_cast<char*>(buffer), size);
         }
     } while (file_mem);
+    std::cout << object_key << std::endl;
 
     if (body.empty())
         return;
 
-    cpr::Response response = s3_uploader->putObject(object_key, body, "application/octet-stream");
+    cpr::AsyncResponse async_response = s3_uploader->putObjectAsync(object_key, body, "application/octet-stream");
 }
 
 // Queue files to be stored to disk

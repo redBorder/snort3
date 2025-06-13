@@ -57,16 +57,9 @@ public:
     FileCapture(
         int64_t min_size,
         int64_t max_size,
-        const std::string& access_key_id,
-        const std::string& secret_access_key,
-        const std::string& region,
-        const std::string& bucket_name,
-        const std::string& endpoint,
-        bool verifySsl,
-        bool httpsScheme,
         bool enable_s3,
-        bool use_real_name
-       // bool store_file_sync
+        bool use_real_name,
+        std::shared_ptr<SimpleS3UploaderV4> s3_uploader = nullptr
     );
     ~FileCapture();
 
@@ -142,7 +135,7 @@ private:
     int64_t capture_min_size;
     int64_t capture_max_size;
     std::string s3_bucket_name;
-    std::unique_ptr<SimpleS3UploaderV4> s3_uploader;
+    std::shared_ptr<SimpleS3UploaderV4> s3_uploader;
 };
 }
 
