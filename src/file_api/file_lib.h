@@ -58,7 +58,6 @@ public:
     void set_file_name(const char* file_name, uint32_t name_size, bool fn_set = true);
     void set_url(const char* url, uint32_t url_size);
     std::string& get_file_name();
-    std::string get_real_file_name();
     std::string& get_url();
     // Whether file name has been set (could be empty file name)
     bool is_file_name_set() const { return file_name_set; }
