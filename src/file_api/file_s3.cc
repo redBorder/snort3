@@ -1,3 +1,23 @@
+//--------------------------------------------------------------------------
+// Copyright (C) 2020-2023 Cisco and/or its affiliates. All rights reserved.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms of the GNU General Public License Version 2 as published
+// by the Free Software Foundation.  You may not use, modify or distribute
+// this program under any other version of the GNU General Public License.
+//
+// This program is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//--------------------------------------------------------------------------
+// file_s3.cc author Miguel Álvarez <malvarez@redborder.com>
+// Simple API to upload files (not multipart) to s3 
+
 #include "file_s3.h"
 #include <ctime>
 #include <sstream>
@@ -63,33 +83,20 @@ cpr::Response SimpleS3UploaderV4::putObject(
 
     std::string fullUrl = scheme_ + "://" + host_ + canonicalUri;
 
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        cpr::Response response = cpr::Put(
-            cpr::Url{fullUrl},
-            cpr::Body{body},
-            cpr::Header{
-                {"Host", host_},
-                {"Authorization", authorizationHeader},
-                {"x-amz-content-sha256", payloadHash},
-                {"x-amz-date", amzDate},
-                {"Content-Type", contentType}
-            },
-            cpr::VerifySsl{verifySsl_}
-        );
-
-        if (response.status_code >= 200 && response.status_code < 300) {
-            return response;
-        }
-
-        if (response.status_code == 500 || response.status_code == 503) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
-        }
-
-        return response;
-    }
-
-    return cpr::Response{};
+    cpr::Response response = cpr::Put(
+        cpr::Url{fullUrl},
+        cpr::Body{body},
+        cpr::Header{
+            {"Host", host_},
+            {"Authorization", authorizationHeader},
+            {"x-amz-content-sha256", payloadHash},
+            {"x-amz-date", amzDate},
+            {"Content-Type", contentType}
+        },
+        cpr::VerifySsl{verifySsl_}
+    );
+    
+    return response;
 }
 
 std::string SimpleS3UploaderV4::getenvOrThrow(const std::string& name) {
