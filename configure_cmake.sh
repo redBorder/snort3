@@ -484,12 +484,6 @@ while [ $# -ne 0 ]; do
          --with-cpr-libraries=*)
              append_cache_entry CPR_LIBRARIES_DIR_HINT PATH $optarg
              ;;
-        --with-aws-includes=*)
-             append_cache_entry AWS_INCLUDE_DIR_HINT PATH $optarg
-             ;;
-         --with-aws-libraries=*)
-             append_cache_entry AWS_LIBRARIES_DIR_HINT PATH $optarg
-             ;;
         --without-libml)
             append_cache_entry ENABLE_KAIZEN_MOCK BOOL true
             ;;

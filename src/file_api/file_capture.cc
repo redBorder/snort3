@@ -47,12 +47,7 @@
 #include "catch/snort_catch.h"
 #endif
 
-#include <aws/core/Aws.h>
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/core/client/ClientConfiguration.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/model/PutObjectRequest.h>
-#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
+#include "file_s3.h"
 
 using namespace snort;
 
@@ -126,28 +121,22 @@ FileCapture::FileCapture(
     if (enable_s3) {
         s3_bucket_name = bucket_name;
 
-        Aws::InitAPI(options);
+        std::string scheme = httpsScheme ? "https" : "http";
+        std::string host = endpoint;
 
-        Aws::Auth::AWSCredentials credentials(access_key_id.c_str(), secret_access_key.c_str());
-
-        Aws::Client::ClientConfiguration client_config;
-        client_config.region = region;
-        client_config.endpointOverride = endpoint;
-
-        client_config.scheme = httpsScheme ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
-        client_config.verifySSL = verifySsl;
-
-        s3_client = std::make_unique<Aws::S3::S3Client>(
-            credentials,
-            client_config,
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            false
+        s3_uploader = std::make_unique<SimpleS3UploaderV4>(
+            bucket_name,
+            region,
+            host,
+            scheme,
+            verifySsl,
+            access_key_id,
+            secret_access_key
         );
 
         store_s3 = true;
     }
 }
-
 
 
 FileCapture::~FileCapture()
@@ -179,8 +168,6 @@ FileCapture::~FileCapture()
     }
 
     head = last = nullptr;
-
-    Aws::ShutdownAPI(options);
 
     if (file_info)
         delete file_info;
@@ -570,39 +557,27 @@ void FileCapture::store_file()
 
 void FileCapture::store_file_s3()
 {
-    if (!store_s3 || !file_info)
+    if (!store_s3 || !file_info || !s3_uploader)
         return;
 
     const std::string& object_key = file_info->get_file_name();
     if (object_key.empty())
         return;
 
-    Aws::SDKOptions options;
-    Aws::InitAPI(options);
-    
-    {
-        uint8_t* buffer = nullptr;
-        int size = 0;
-        void* file_mem = get_file_data(&buffer, &size);
-        if (!buffer || size <= 0) {
-            Aws::ShutdownAPI(options);
-            return;
-        }
-
-        Aws::S3::Model::PutObjectRequest request;
-        request.SetBucket(Aws::String(s3_bucket_name.c_str()));
-        request.SetKey(Aws::String(object_key.c_str()));
-
-        auto stream = Aws::MakeShared<Aws::StringStream>("UploadTag");
-        stream->write(reinterpret_cast<char*>(buffer), size);
-        request.SetBody(stream);
-        request.SetContentLength(size);
-
-        auto outcome = s3_client->PutObject(request);
+    uint8_t* buffer = nullptr;
+    int size = 0;
+    void* file_mem = get_file_data(&buffer, &size);
+    if (!buffer || size <= 0) {
+        return;
     }
 
-    Aws::ShutdownAPI(options);
+    std::string body(reinterpret_cast<char*>(buffer), size);
+    try {
+        cpr::Response response = s3_uploader->putObject(object_key, body, "application/octet-stream");
+    } catch (...) {
+    }
 }
+
 
 // Queue files to be stored to disk
 void FileCapture::store_file_async()

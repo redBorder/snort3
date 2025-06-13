@@ -35,8 +35,7 @@
 #include <mutex>
 #include <queue>
 #include <thread>
-#include <aws/s3/S3Client.h>
-#include <aws/core/Aws.h>
+#include "file_s3.h"
 
 #include "file_api.h"
 
@@ -139,8 +138,7 @@ private:
     int64_t capture_min_size;
     int64_t capture_max_size;
     std::string s3_bucket_name;
-    std::unique_ptr<Aws::S3::S3Client> s3_client;
-    Aws::SDKOptions options;
+    std::unique_ptr<SimpleS3UploaderV4> s3_uploader;
 };
 }
 

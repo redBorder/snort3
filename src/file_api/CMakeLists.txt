@@ -35,6 +35,7 @@ add_library ( file_api OBJECT
     file_service.cc
     file_stats.cc
     file_stats.h
+    file_s3.h
 )
 
 install (FILES ${FILE_API_INCLUDES}
