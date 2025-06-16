@@ -812,7 +812,6 @@ void FileContext::stop_file_capture()
         file_capture = nullptr;
     }
 
-    std::cout << "Stop file capture" << std::endl;
     shared_s3_uploader.reset();
 
     config_file_capture(false);
