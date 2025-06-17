@@ -2,17 +2,17 @@
 Description=Snort 3 Network Intrusion Detection System (instance %i)
 After=network.target
 
-
 [Service]
 Type=simple
 EnvironmentFile=/etc/snort/%i/env
-ExecStart=/usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -A ${OUTPUT_PLUGIN} -z ${THREADS}
-CPUAffinity=$CPU_CORES
+WorkingDirectory=/etc/snort/%i
+ExecStartPre=/bin/sh -c 'if [ "$BP_SNORT" = "1" ] && echo "$SEGMENT" | grep -q "bpbr"; then /usr/lib/redborder/bin/rb_bypass.sh -b "$SEGMENT" -s off; fi'
+ExecStart=/bin/sh -c 'taskset -c "$(echo ${CPU_CORES} | sed "s/ /,/g")" /usr/sbin/snort --daq-dir /usr/lib64/daq -c /etc/snort/%i/config.lua -i ${IFACE} $ARGS -R /etc/snort/%i/snort.rules -A ${OUTPUT_PLUGIN} -z ${THREADS}'
+ExecStopPost=/bin/sh -c 'if [ "$BP_SNORT" = "1" ] && echo "$SEGMENT" | grep -q "bpbr"; then /usr/lib/redborder/bin/rb_bypass.sh -b "$SEGMENT" -s on; fi'
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
 TimeoutStartSec=60
-
 User=root
 Group=root
 
