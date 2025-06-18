@@ -236,6 +236,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     Packet* p, uint32_t& iplist_id)
 {
     IPdecision decision_final = DECISION_NULL;
+    if(config.snort_flags &  RUN_FLAG__INLINE) return decision_final; // redBorder patch (only act if -Q)
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
 
@@ -300,7 +301,7 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
     Packet* p, const SfIp* ip)
 {
     IPdecision decision = DECISION_NULL;
-
+    if(config.snort_flags &  RUN_FLAG__INLINE) return decision;  // redBorder patch (only act if -Q)
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
 
@@ -687,6 +688,7 @@ static Inspector* reputation_ctor(Module* m)
 {
     ReputationModule* mod = (ReputationModule*)m;
     ReputationConfig* conf = mod->get_data();
+    conf->snort_flags = SnortConfig::get_conf()->run_flags;
     return conf ? new Reputation(conf) : nullptr;
 }
 
