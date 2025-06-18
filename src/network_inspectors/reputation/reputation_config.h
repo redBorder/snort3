@@ -88,7 +88,7 @@ struct ReputationConfig
     std::string allowlist_path;
     std::string monitorlist_path;
     std::string list_dir;
-    char snort_flags; 
+    uint32_t snort_flags; 
     
     /* redBorder GeoIP */
     std::string geoip_db_path;
