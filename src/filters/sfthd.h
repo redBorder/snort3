@@ -141,6 +141,7 @@ struct THD_NODE
     int count = 0;
     unsigned seconds = 0;
     sfip_var_t* ip_address = nullptr;
+    sfip_var_t* secondary_ip = nullptr;
 };
 
 /*!
@@ -177,6 +178,7 @@ struct THDX_STRUCT
     int priority;
 
     sfip_var_t* ip_address;
+    sfip_var_t* secondary_ip;
 };
 
 struct tThdItemKey

@@ -1389,6 +1389,9 @@ bool SuppressModule::set(const char*, Value& v, SnortConfig*)
     else if ( v.is("ip") )
         thdx.ip_address = sfip_var_from_string(v.get_string(), "suppress");
 
+    else if ( v.is("secondary_ip") )
+        thdx.secondary_ip = sfip_var_from_string(v.get_string(), "suppress");
+
     return true;
 }
 
@@ -1507,6 +1510,9 @@ bool EventFilterModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("ip") )
         thdx.ip_address = sfip_var_from_string(v.get_string(), "event_filter");
+
+    else if ( v.is("secondary_ip") )
+        thdx.secondary_ip = sfip_var_from_string(v.get_string(), "event_filter");
 
     else if ( v.is("count") )
         thdx.count = v.get_int32();

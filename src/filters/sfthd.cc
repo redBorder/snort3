@@ -133,6 +133,11 @@ void sfthd_node_free(THD_NODE* sfthd_node)
         sfvar_free(sfthd_node->ip_address);
         sfthd_node->ip_address = nullptr;
     }
+    if ( sfthd_node->secondary_ip )
+    {
+        sfvar_free(sfthd_node->secondary_ip);
+        sfthd_node->secondary_ip = nullptr;
+    }
     delete sfthd_node;
 }
 
