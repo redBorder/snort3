@@ -81,7 +81,8 @@ enum
 {
     THD_TRK_NONE,  // suppress only
     THD_TRK_SRC,
-    THD_TRK_DST
+    THD_TRK_DST,
+    THD_TRK_SRCDST
 };
 
 /*!
@@ -110,6 +111,7 @@ struct THD_IP_NODE_KEY
     int thd_id;
     PolicyId policyId;
     snort::SfIp ip;
+    snort::SfIp secondary_ip;
     uint16_t padding;
 };
 
@@ -119,6 +121,7 @@ struct THD_IP_GNODE_KEY
     unsigned sig_id;
     PolicyId policyId;
     snort::SfIp ip;
+    snort::SfIp secondary_ip;
     uint16_t padding;
 };
 PADDING_GUARD_END
@@ -133,12 +136,13 @@ struct THD_NODE
     int thd_id = 0;        /* Id of this node */
     unsigned gen_id = 0;   /* Keep these around if needed */
     unsigned sig_id = 0;
-    int tracking = 0;      /* by_src, by_dst */
+    int tracking = 0;      /* by_src, by_dst by_srcdst */
     int type = 0;
     int priority = 0;
     int count = 0;
     unsigned seconds = 0;
     sfip_var_t* ip_address = nullptr;
+    sfip_var_t* secondary_ip = nullptr;
 };
 
 /*!

@@ -437,15 +437,35 @@ int sfthd_test_rule(XHash* rule_hash, THD_NODE* sfthd_node,
 
 static inline int sfthd_test_suppress(
     THD_NODE* sfthd_node,
-    const SfIp* ip)
+    const SfIp* sip,
+    const SfIp* dip)
 {
-    if ( !sfthd_node->ip_address or
-        sfvar_ip_in(sfthd_node->ip_address, ip) )
-    {
-        /* Don't log, and stop looking( event's to this address
-         * for this gen_id+sig_id) */
-        return -1;
+    if (sfthd_node->tracking == THD_TRK_SRCDST) {
+        if (!sfthd_node->ip_address || !sfthd_node->secondary_ip ||
+            (sfvar_ip_in(sfthd_node->ip_address, sip) &&
+             sfvar_ip_in(sfthd_node->secondary_ip, dip)))
+        {
+#ifdef THD_DEBUG
+            printf("THD_DEBUG: SUPPRESS NODE, do not log events with this sIP->dIP combination\n");
+            fflush(stdout);
+#endif
+            sfthd_node->count++;
+            return -1;
+        }
+    } else {
+        const SfIp* tracked_ip = (sfthd_node->tracking == THD_TRK_SRC) ? sip : dip;
+        if (!sfthd_node->ip_address ||
+            sfvar_ip_in(sfthd_node->ip_address, tracked_ip))
+        {
+#ifdef THD_DEBUG
+            printf("THD_DEBUG: SUPPRESS NODE, do not log events with this IP\n");
+            fflush(stdout);
+#endif
+            sfthd_node->count++;
+            return -1;
+        }
     }
+
     return 1; /* Keep looking for other suppressors */
 }
 
@@ -586,20 +606,20 @@ int sfthd_test_local(
     THD_IP_NODE_KEY key;
     THD_IP_NODE data,* sfthd_ip_node;
     const SfIp* ip;
-
+    const SfIp* secondary_ip;
     // -1 means don't do any limit or thresholding 
     if ( sfthd_node->count == THD_NO_THRESHOLD )
         return 0;
 
     // Get The correct IP
-    if ( sfthd_node->tracking == THD_TRK_SRC )
+    if (sfthd_node->tracking == THD_TRK_SRC)
         ip = sip;
     else
         ip = dip;
 
     // Check for and test Suppression of this event to this IP
     if ( sfthd_node->type == THD_TYPE_SUPPRESS )
-        return sfthd_test_suppress(sfthd_node, ip);
+        return sfthd_test_suppress(sfthd_node, ip, secondary_ip);
     
     // Go on and do standard thresholding
 
@@ -662,20 +682,26 @@ static inline int sfthd_test_global(
     THD_IP_NODE data;
     THD_IP_NODE* sfthd_ip_node;
     const SfIp* ip;
+    const SfIp* secondary_ip;
 
     /* -1 means don't do any limit or thresholding */
     if ( sfthd_node->count == THD_NO_THRESHOLD)
         return 0;
     
     /* Get The correct IP */
-    if (sfthd_node->tracking == THD_TRK_SRC)
+
+    if (sfthd_node->tracking == THD_TRK_SRC){
         ip = sip;
-    else
+    } else if (sfthd_node->tracking == THD_TRK_SRCDST){
+        ip = sip;
+        secondary_ip = dip;
+    } else {
         ip = dip;
+    }
 
     /* Check for and test Suppression of this event to this IP */
     if ( sfthd_node->type == THD_TYPE_SUPPRESS )
-        return sfthd_test_suppress(sfthd_node, ip);
+        return sfthd_test_suppress(sfthd_node, ip, secondary_ip);
     
     /*
     *  Go on and do standard thresholding
