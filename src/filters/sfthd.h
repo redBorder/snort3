@@ -111,7 +111,6 @@ struct THD_IP_NODE_KEY
     int thd_id;
     PolicyId policyId;
     snort::SfIp ip;
-    snort::SfIp secondary_ip;
     uint16_t padding;
 };
 
