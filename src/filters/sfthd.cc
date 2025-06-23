@@ -166,6 +166,10 @@ void sfthd_objs_free(ThresholdObjects* thd_objs)
                 auto ip_deleted = deleted_ip_vars.insert(node->ip_address);
                 if ( ip_deleted.second ) 
                     sfvar_free(node->ip_address);
+                    
+                auto secondary_ip_deleted = deleted_ip_vars.insert(node->secondary_ip);
+                if ( secondary_ip_deleted.second ) 
+                    sfvar_free(node->secondary_ip);
             }
         }
         // Clear the map after handling ip_address in all nodes.
