@@ -22,7 +22,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
+#include "main/snort_config.h"
 #include <librdkafka/rdkafka.h>
 #include "geoip/rbgeoip.h"
 #include "macs/mac_vendors.h"
@@ -46,6 +46,9 @@
 #include "protocols/vlan.h"
 #include "utils/stats.h"
 #include "enrichment/sensor_enrichment.h"
+#include <random>
+#include <sstream>
+#include <iomanip>
 
 using namespace snort;
 using namespace std;
@@ -53,6 +56,7 @@ using namespace std;
 #define LOG_BUFFER (4 * K_BYTES)
 
 static THREAD_LOCAL BinaryWriter *json_log;
+static THREAD_LOCAL TextLog* full_log = nullptr;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
 
 thread_local std::unique_ptr<MacVendorDatabase> _MacVendorDB = nullptr;
@@ -66,6 +70,30 @@ MacVendorDatabase& MacVendorDB() {
 
 #define S_NAME "alert_kafka"
 #define D_TOPIC "rb_event"
+
+#define S_NAME_PCAP "alert_full"
+#define F_NAME S_NAME_PCAP ".txt"
+
+std::string GenerateUUID()
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint32_t> dis32;
+    std::uniform_int_distribution<uint16_t> dis16;
+
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+
+    ss << std::setw(8) << dis32(gen) << "-";
+    ss << std::setw(4) << dis16(gen) << "-";
+    ss << std::setw(4) << ((dis16(gen) & 0x0fff) | 0x4000) << "-";
+    ss << std::setw(4) << ((dis16(gen) & 0x3fff) | 0x8000) << "-";
+    ss << std::setw(4) << dis16(gen)
+       << std::setw(4) << dis16(gen)
+       << std::setw(4) << dis16(gen);
+
+    return ss.str();
+}
 
 //-------------------------------------------------------------------------
 // field formatting functions
@@ -917,6 +945,9 @@ static const Parameter s_params[] =
         {"separator", Parameter::PT_STRING, nullptr, ", ",
          "separate fields with this character sequence"},
 
+        { "file", Parameter::PT_BOOL, nullptr, "false",
+            "output to " F_NAME " instead of stdout" },
+
         {nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr}};
 
 #define s_help \
@@ -936,6 +967,8 @@ public:
     }
 
 public:
+    bool file = false;
+    size_t limit = 0;
     string sep;
     string topic;
     string broker_host;
@@ -979,12 +1012,21 @@ bool KafkaModule::set(const char *, Value &v, SnortConfig *)
     else if (v.is("geoip_db"))
         geoip_db = v.get_string();
 
+    if ( v.is("file") )
+        file = v.get_bool();
+
+    else if ( v.is("limit") )
+        limit = v.get_size() * 1024 * 1024;
+
     return true;
 }
 
 bool KafkaModule::begin(const char *, int, SnortConfig *)
 {
     sep = ", ";
+
+    file = false;
+    limit = 0;
 
     if (fields.empty())
     {
@@ -1023,6 +1065,8 @@ private:
     string group_name;
     string mac_vendors;
     string geoip_db;
+    string file;
+    unsigned long limit;
     vector<JsonFunc> fields;
     string enrichment;
     thread_local static rd_kafka_t *rk;
@@ -1045,6 +1089,8 @@ KafkaLogger::KafkaLogger(KafkaModule *m)
     broker_host = m->broker_host;
     mac_vendors = m->mac_vendors;
     geoip_db = m->geoip_db;
+    file = m->file ? F_NAME : "stdout";
+    limit = m->limit;
 }
 
 void KafkaLogger::open()
@@ -1052,7 +1098,7 @@ void KafkaLogger::open()
     conf = rd_kafka_conf_new();
     rd_kafka_conf_set(conf, "bootstrap.servers", broker_host.c_str(), errstr, sizeof(errstr));
     json_log = BinaryWriter_Init(LOG_BUFFER);
-
+    full_log = TextLog_Init(file.c_str(), LOG_BUFFER, limit);
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) MacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
 
@@ -1079,17 +1125,78 @@ void KafkaLogger::close()
     GeoIpLoader::Manager::getInstance()->unloadDB();
 }
 
+void LogFullPacketData(TextLog* log, const Packet* p)
+{
+    const uint8_t* data = p->pkt;
+    uint32_t len = p->pktlen;
+
+    for (uint32_t offset = 0; offset < len; offset += 16)
+    {
+        TextLog_Print(log, "%06x  ", offset);
+
+        for (uint32_t i = 0; i < 16; ++i)
+        {
+            if (offset + i < len)
+                TextLog_Print(log, "%02x ", data[offset + i]);
+            else
+                TextLog_Puts(log, "   ");
+        }
+
+        TextLog_Puts(log, " ");
+
+        for (uint32_t i = 0; i < 16 && (offset + i) < len; ++i)
+        {
+            char c = static_cast<char>(data[offset + i]);
+            if (isprint(static_cast<unsigned char>(c)))
+                TextLog_Putc(log, c);
+            else
+                TextLog_Putc(log, '.');
+        }
+
+        TextLog_NewLine(log);
+    }
+}
+
+/*
+ * Only for intrusion sensor in manager mode
+ */
+void AlertPacketPayload(Packet* p, const char* msg, const Event& event, const char* event_uuid)
+{
+    if (event_uuid)
+    {
+        TextLog_Print(full_log, " %s:", event_uuid);
+    }
+
+    if (p->has_ip())
+    {
+        LogFullPacketData(full_log, p);
+    }
+
+    TextLog_Puts(full_log, "\n");
+    TextLog_Flush(full_log);
+}
+
 void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
 {
+    std::string event_uuid = GenerateUUID();
+
     Args a = {p, msg, event, false};
+
     BinaryWriter_Putc(json_log, '{');
+
+    BinaryWriter_Print(json_log, "\"event_uuid\":\"%s\"", event_uuid.c_str());
+    a.comma = true;
+
     for (JsonFunc f : fields)
     {
         f(a);
         a.comma = true;
     }
 
-    if(enrichment.length() > 0) SensorEnrichment::EnrichJsonLog(json_log, enrichment);
+    if (enrichment.length() > 0)
+    {
+        SensorEnrichment::EnrichJsonLog(json_log, enrichment);
+    }
 
     BinaryWriter_Print(json_log, " }");
 
@@ -1104,11 +1211,15 @@ void KafkaLogger::alert(Packet *p, const char *msg, const Event &event)
                 nullptr, 0, nullptr) == -1)
         {
         }
+
+        AlertPacketPayload(p, msg, event, event_uuid.c_str());
+
         free(json_event);
     }
 
     rd_kafka_poll(rk, 0);
 }
+
 
 //-------------------------------------------------------------------------
 // api stuff
