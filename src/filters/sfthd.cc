@@ -166,7 +166,7 @@ void sfthd_objs_free(ThresholdObjects* thd_objs)
                 auto ip_deleted = deleted_ip_vars.insert(node->ip_address);
                 if ( ip_deleted.second ) 
                     sfvar_free(node->ip_address);
-                    
+
                 auto secondary_ip_deleted = deleted_ip_vars.insert(node->secondary_ip);
                 if ( secondary_ip_deleted.second ) 
                     sfvar_free(node->secondary_ip);
@@ -621,10 +621,14 @@ int sfthd_test_local(
         return 0;
 
     // Get The correct IP
-    if (sfthd_node->tracking == THD_TRK_SRC)
+    if (sfthd_node->tracking == THD_TRK_SRC){
         ip = sip;
-    else
+    } else if (sfthd_node->tracking == THD_TRK_SRCDST){
+        ip = sip;
+        secondary_ip = dip;
+    } else {
         ip = dip;
+    }
 
     // Check for and test Suppression of this event to this IP
     if ( sfthd_node->type == THD_TYPE_SUPPRESS )
