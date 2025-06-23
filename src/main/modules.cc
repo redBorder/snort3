@@ -1445,7 +1445,7 @@ static const Parameter event_filter_params[] =
     { "type", Parameter::PT_ENUM, "limit | threshold | both", nullptr,
       "1st count events | every count events | once after count events" },
 
-    { "track", Parameter::PT_ENUM, "by_src | by_dst", nullptr,
+    { "track", Parameter::PT_ENUM, "by_src | by_dst | by_srcdst", nullptr,
       "filter only matching source or destination addresses" },
 
     { "count", Parameter::PT_INT, "-1:max31", "0",
@@ -1456,6 +1456,9 @@ static const Parameter event_filter_params[] =
 
     { "ip", Parameter::PT_STRING, nullptr, nullptr,
       "restrict filter to these addresses according to track" },
+
+    { "secondary_ip", Parameter::PT_STRING, nullptr, nullptr,
+      "restrict filter to these secodnary addresses according to track" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
