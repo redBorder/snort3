@@ -55,3 +55,7 @@ build.env
 coverage.info
 coverage.txt
 src/uncovered.txt
+
+SOURCES
+pkgs
+
