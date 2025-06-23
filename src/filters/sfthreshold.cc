@@ -128,6 +128,7 @@ int sfthreshold_create(
         thdx->count,
         thdx->seconds,
         thdx->ip_address,
+        thdx->secondary_ip,
         policy_id);
 }
 

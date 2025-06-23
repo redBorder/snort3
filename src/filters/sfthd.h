@@ -250,7 +250,7 @@ void sfthd_node_free(THD_NODE*);
 
 int sfthd_create_threshold(snort::SnortConfig*, ThresholdObjects*, unsigned gen_id,
     unsigned sig_id, int tracking, int type, int priority, int count,
-    unsigned seconds, sfip_var_t* ip_address, PolicyId policy_id);
+    unsigned seconds, sfip_var_t* ip_address, sfip_var_t* secondary_ip, PolicyId policy_id);
 
 //  1: don't log due to event_filter
 //  0: log

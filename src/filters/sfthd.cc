@@ -404,7 +404,7 @@ int sfthd_create_threshold(
     int priority,
     int count,
     unsigned seconds,
-    sfip_var_t* ip_address, PolicyId policy_id)
+    sfip_var_t* ip_address, sfip_var_t* secondary_ip, PolicyId policy_id)
 {
     
     if ( thd_objs == nullptr ) 
@@ -417,8 +417,8 @@ int sfthd_create_threshold(
         thd_objs->sfthd_vector.resize(gen_id + 1, nullptr);
 
     THD_NODE sfthd_node { thd_objs->count++, // Increment count and use it as thd_id
-    gen_id, sig_id, tracking, // by_src, by_dst
-    type, priority, count, seconds, ip_address };
+    gen_id, sig_id, tracking, // by_src, by_dst, by_srcdst
+    type, priority, count, seconds, ip_address, secondary_ip};
     
     if ( sig_id == 0 )
         return sfthd_create_threshold_global(sc, thd_objs, &sfthd_node, policy_id);
