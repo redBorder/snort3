@@ -1348,11 +1348,14 @@ static const Parameter suppress_params[] =
     { "sid", Parameter::PT_INT, "0:max32", "0",
       "rule signature ID" },
 
-    { "track", Parameter::PT_ENUM, "by_src | by_dst", nullptr,
+    { "track", Parameter::PT_ENUM, "by_src | by_dst | by_srcdst", nullptr,
       "suppress only matching source or destination addresses" },
 
     { "ip", Parameter::PT_STRING, nullptr, nullptr,
       "restrict suppression to these addresses according to track" },
+
+    { "secondary_ip", Parameter::PT_STRING, nullptr, nullptr,
+      "restrict suppression to these secondary addresses according to track" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
