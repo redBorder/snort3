@@ -19,7 +19,7 @@
 /*
  **
  **  Author(s):  Hui Cao <huica@cisco.com>
- **
+ **  Extended by Miguel Álvarez <malvarez@redborder.com> File Sending to S3
  **  NOTES
  **  5.05.2013 - Initial Source Code. Hui Cao
  */
@@ -47,6 +47,9 @@
 #include "catch/snort_catch.h"
 #endif
 
+#include "file_s3.h"
+#include <iostream>
+
 using namespace snort;
 
 FileMemPool* FileCapture::file_mempool = nullptr;
@@ -57,6 +60,8 @@ std::condition_variable FileCapture::capture_cv;
 std::thread* FileCapture::file_storer = nullptr;
 std::queue<FileCapture*> FileCapture::files_waiting;
 bool FileCapture::running = true;
+bool FileCapture::store_s3 = false;
+bool FileCapture::capture_real_name = true;
 
 FileCaptureState FileCapture::error_capture(FileCaptureState state)
 {
@@ -85,20 +90,32 @@ void FileCapture::writer_thread()
         files_waiting.pop();
         lk.unlock();
 
-        file->store_file();
+        if(store_s3){
+            file->store_file_s3();
+        } else {
+            file->store_file();
+        }
         delete file;
     }
 }
 
-FileCapture::FileCapture(int64_t min_size, int64_t max_size)
-{
+FileCapture::FileCapture(
+    int64_t min_size,
+    int64_t max_size,
+    bool enable_s3,
+    bool use_real_name,
+    std::shared_ptr<SimpleS3UploaderV4> s3_uploader_ptr
+) : s3_uploader(std::move(s3_uploader_ptr)) {
+    capture_min_size = min_size;
+    capture_max_size = max_size;
+    capture_real_name = use_real_name;
     capture_size = 0;
     last = head = nullptr;
     current_data = nullptr;
     current_data_len = 0;
     capture_state = FILE_CAPTURE_SUCCESS;
-    capture_min_size = min_size;
-    capture_max_size = max_size;
+
+    store_s3 = enable_s3 && static_cast<bool>(s3_uploader);
 }
 
 FileCapture::~FileCapture()
@@ -473,13 +490,15 @@ void FileCapture::write_file_data(uint8_t* buf, size_t buf_len, FILE* fh)
     }
 }
 
+
 // Store files on local disk
 void FileCapture::store_file()
 {
     if (!file_info)
         return;
 
-    const std::string& file_full_name = file_info->get_file_name();
+    std::string file_full_name;
+    file_full_name = file_info->get_file_name();
 
     /*Check whether the file exists*/
     struct stat buffer;
@@ -516,6 +535,35 @@ void FileCapture::store_file()
     fclose(fh);
 }
 
+void FileCapture::store_file_s3()
+{
+    if (!store_s3 || !file_info || !s3_uploader)
+        return;
+    
+    std::string object_key;
+    object_key = file_info->get_file_name();
+
+    if (object_key.empty())
+        return;
+
+    std::string body;
+    uint8_t* buffer = nullptr;
+    int size = 0;
+    void* file_mem;
+
+    do {
+        file_mem = get_file_data(&buffer, &size);
+        if (buffer && size > 0) {
+            body.append(reinterpret_cast<char*>(buffer), size);
+        }
+    } while (file_mem);
+
+    if (body.empty())
+        return;
+
+    cpr::AsyncResponse async_response = s3_uploader->putObjectAsync(object_key, body, "application/octet-stream");
+}
+
 // Queue files to be stored to disk
 void FileCapture::store_file_async()
 {
@@ -527,7 +575,8 @@ void FileCapture::store_file_async()
     if (!sha)
         return;
 
-    std::string file_name = file_info->sha_to_string(sha);
+    std::string file_name;
+    capture_real_name ? file_name = file_info->get_file_name() : file_name = file_info->sha_to_string(sha);
 
     std::string file_full_name;
     get_instance_file(file_full_name, file_name.c_str());

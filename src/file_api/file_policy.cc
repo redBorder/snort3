@@ -28,6 +28,7 @@
 #include "file_api/file_lib.h"
 #include "file_api/file_service.h"
 #include "hash/hashes.h"
+#include <iostream>
 
 using namespace snort;
 

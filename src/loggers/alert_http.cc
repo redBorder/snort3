@@ -1076,7 +1076,7 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     {
         size_t json_event_size = strlen(json_event);
 
-        cpr::Response response = cpr::Post(
+        cpr::AsyncResponse response = cpr::PostAsync(
             cpr::Url{http_endpoint},
             cpr::Body{json_event},
             cpr::Header{{"Content-Type", "application/json"}},
