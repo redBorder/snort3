@@ -23,6 +23,7 @@
 #include <cstdint>
 
 #include "sfrt/sfrt_flat.h"
+#include "reputation_config.h"
 
 struct IPrepInfo;
 struct ListFile;
@@ -32,6 +33,8 @@ class ReputationData;
 class ReputationParser
 {
 public:
+    static bool process_geoip_file(const std::string& filename, IPdecision decision, ReputationConfig& config);
+    static bool load_geoip_manifest(ReputationConfig& config);
     static void read_manifest(const char* filename, const ReputationConfig&, ReputationData&);
     static void add_block_allow_List(const ReputationConfig&, ReputationData&);
     static void estimate_num_entries(ReputationData&);

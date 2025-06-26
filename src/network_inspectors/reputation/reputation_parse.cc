@@ -756,6 +756,15 @@ void ReputationParser::add_block_allow_List(const ReputationConfig& config, Repu
         listItem->list_id = 0;
         data.list_files.emplace_back(listItem);
     }
+    if (config.monitorlist_path.size())
+    {
+        ListFile* listItem = new ListFile;
+        listItem->all_intfs_enabled = true;
+        listItem->file_name = config.monitorlist_path;
+        listItem->file_type = MONITOR_LIST;
+        listItem->list_id = 0;
+        data.list_files.emplace_back(listItem);
+    }
 }
 
 /*Ignore the space characters from string*/
@@ -954,3 +963,74 @@ void ReputationParser::read_manifest(const char* manifest_file, const Reputation
     fs.close();
 }
 
+/*
+    redBorder reputation GeoIP Extension for snort3
+*/
+
+bool ReputationParser::load_geoip_manifest(ReputationConfig& config)
+{
+    if (config.geoip_manifest_path.empty())
+        return false;
+
+    std::ifstream manifest(config.geoip_manifest_path);
+    if (!manifest.is_open())
+    {
+        ErrorMessage("Could not open GeoIP manifest file: %s\n", config.geoip_manifest_path.c_str());
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(manifest, line))
+    {
+        line.erase(line.find_last_not_of(" \t") + 1);
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        size_t first_delim = line.find("::");
+        size_t second_delim = line.find("::", first_delim + 2);
+        if (first_delim == std::string::npos || second_delim == std::string::npos)
+        {
+            ErrorMessage("Invalid line in GeoIP manifest (missing '::' separators): %s\n", line.c_str());
+            continue;
+        }
+
+        std::string name    = line.substr(0, first_delim);
+        std::string type    = line.substr(first_delim + 2, second_delim - (first_delim + 2));
+        std::string action  = line.substr(second_delim + 2);
+
+        name.erase(0, name.find_first_not_of(" \t"));
+        name.erase(name.find_last_not_of(" \t") + 1);
+        type.erase(0, type.find_first_not_of(" \t"));
+        type.erase(type.find_last_not_of(" \t") + 1);
+        action.erase(0, action.find_first_not_of(" \t"));
+        action.erase(action.find_last_not_of(" \t") + 1);
+
+        IPdecision decision = DECISION_NULL;
+        if (action == "white") decision = TRUSTED;
+        else if (action == "black") decision = BLOCKED;
+        else if (action == "monitor") decision = MONITORED;
+        else
+        {
+            ErrorMessage("Unknown action in GeoIP manifest: %s\n", action.c_str());
+            continue;
+        }
+
+        if (type == "country")
+        {
+            config.geoip_actions_countries[name] = decision;
+        }
+        else if (type == "continent")
+        {
+            config.geoip_actions_continents[name] = decision;
+        }
+        else
+        {
+            ErrorMessage("Unknown type in GeoIP manifest (expected 'country' or 'continent'): %s\n", type.c_str());
+            continue;
+        }
+
+        config.geoip_enabled = true;
+    }
+
+    return true;
+}

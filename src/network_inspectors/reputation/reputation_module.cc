@@ -59,6 +59,12 @@ static const Parameter s_params[] =
     { "list_dir", Parameter::PT_STRING, nullptr, nullptr,
       "directory for IP lists and manifest file" },
 
+    { "geoip_db_path", Parameter::PT_STRING, nullptr, nullptr,
+      "directory for load geoip db" },
+
+    { "geoip_manifest_path", Parameter::PT_STRING, nullptr, nullptr,
+      "directory for geoip manifest file" },
+
     { "memcap", Parameter::PT_INT, "1:4095", "500",
       "maximum total MB of memory allocated" },
 
@@ -76,6 +82,9 @@ static const Parameter s_params[] =
 
     { "allowlist", Parameter::PT_STRING, nullptr, nullptr,
       "allowlist file name with IP lists" },
+
+    { "monitorlist", Parameter::PT_STRING, nullptr, nullptr,
+      "monitorlist file name with IP lists" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
@@ -128,6 +137,12 @@ bool ReputationModule::set(const char*, Value& v, SnortConfig*)
     if ( v.is("blocklist") )
         conf->blocklist_path = v.get_string();
 
+    if ( v.is("geoip_db_path") )
+        conf->geoip_db_path = v.get_string();
+
+    if ( v.is("geoip_manifest_path") )
+        conf->geoip_manifest_path = v.get_string();
+
     else if ( v.is("list_dir") )
         conf->list_dir = v.get_string();
 
@@ -148,6 +163,9 @@ bool ReputationModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("allowlist") )
         conf->allowlist_path = v.get_string();
+
+    else if ( v.is("monitorlist") )
+        conf->monitorlist_path = v.get_string();
 
     return true;
 }
