@@ -639,7 +639,7 @@ static bool ff_rev(const Args &a)
 static bool ff_sig_generator(const Args &a)
 {
     print_label(a, "sig_generator");
-    BinaryWriter_Print(json_log, "\"%u\"",  a.event.get_rev());
+    BinaryWriter_Print(json_log, "\"%u\"",  a.event.get_gid());
 
     return true;
 }

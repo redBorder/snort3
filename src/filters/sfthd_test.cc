@@ -74,6 +74,7 @@ typedef struct
     int count;
     int seconds;
     const char* ip;
+    const char* secondary_ip;
     int expect;
     int create;
     THD_NODE* rule;
@@ -99,131 +100,131 @@ static XHash* dThd = nullptr;
 static ThreshData thData[] =
 {
     // gid, sid checks
-    { 0,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, -1, 0, nullptr }
-    ,{ 1,   0, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 1,   0, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, THD_TOO_MANY_THDOBJ, 0, nullptr }
-    ,{ 2,   0, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 8129,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, -1, 0, nullptr }
-    ,{ 1,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 1,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, THD_TOO_MANY_THDOBJ, 0, nullptr }
+    { 0,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, -1, 0, nullptr }
+    ,{ 1,   0, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 1,   0, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, THD_TOO_MANY_THDOBJ, 0, nullptr }
+    ,{ 2,   0, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 8129,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, -1, 0, nullptr }
+    ,{ 1,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 1,   1, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, THD_TOO_MANY_THDOBJ, 0, nullptr }
 
     // tracking checks
-    ,{ 100, 100, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 100, 100, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
+    ,{ 100, 100, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 100, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
        nullptr }
-    ,{ 100, 101, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 100, 101, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
+    ,{ 100, 101, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 101, THD_TRK_DST, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
        nullptr }
 
     // type checks (dup gid,sid allowed with suppress)
-    ,{ 100, 110, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 100, 110, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
+    ,{ 100, 110, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 110, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
        nullptr }
-    ,{ 100, 120, THD_TRK_SRC, THD_TYPE_BOTH,        1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 100, 120, THD_TRK_SRC, THD_TYPE_BOTH,        1,  1, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
+    ,{ 100, 120, THD_TRK_SRC, THD_TYPE_BOTH,        1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 120, THD_TRK_SRC, THD_TYPE_BOTH,        1,  1, IP_ANY, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
        nullptr }
-    ,{ 100, 130, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, 0, 0, nullptr }
-    ,{ 100, 130, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, 0, 0, nullptr }
-    ,{ 100, 140, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 100, 140, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
+    ,{ 100, 130, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 130, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 140, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 140, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, THD_TOO_MANY_THDOBJ, 0,
        nullptr }
-    ,{ 100, 110, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, 0, 0, nullptr }
-    ,{ 100, 120, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, 0, 0, nullptr }
-    ,{ 100, 130, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, 0, 0, nullptr }
-    ,{ 100, 140, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, 0, 0, nullptr }
+    ,{ 100, 110, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 120, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 130, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, IP_ANY, 0, 0, nullptr }
+    ,{ 100, 140, THD_TRK_SRC, THD_TYPE_SUPPRESS,    1,  1, IP4_SRC, IP_ANY, 0, 0, nullptr }
 
     // count/seconds / ip checks
     // count/seconds = 0 means fire after 1st event
-    ,{ 120, 100, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_DST, 0, 0, nullptr }
-    ,{ 120, 101, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  1, IP4_DST, 0, 0, nullptr }
-    ,{ 120, 102, THD_TRK_DST, THD_TYPE_SUPPRESS,    1,  0, IP4_DST, 0, 0, nullptr }
+    ,{ 120, 100, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_DST, IP_ANY, 0, 0, nullptr }
+    ,{ 120, 101, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  1, IP4_DST, IP_ANY, 0, 0, nullptr }
+    ,{ 120, 102, THD_TRK_DST, THD_TYPE_SUPPRESS,    1,  0, IP4_DST, IP_ANY, 0, 0, nullptr }
     // count/seconds < 0 means fire every time
-    ,{ 120, 110, THD_TRK_SRC, THD_TYPE_SUPPRESS,   -1, -1, IP4_SRC, 0, 0, nullptr }
+    ,{ 120, 110, THD_TRK_SRC, THD_TYPE_SUPPRESS,   -1, -1, IP4_SRC, IP_ANY, 0, 0, nullptr }
     // code assumes a valid SfIp* so can't test this
     //,{ 120, 120, THD_TRK_SRC, THD_TYPE_SUPPRESS, 0, 0, "", 0, 0, nullptr }
-    ,{ 120, 130, THD_TRK_SRC, THD_TYPE_LIMIT,      -1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 120, 131, THD_TRK_SRC, THD_TYPE_THRESHOLD,  -1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 120, 132, THD_TRK_SRC, THD_TYPE_BOTH,       -1,  1, IP_ANY, 0, 0, nullptr }
+    ,{ 120, 130, THD_TRK_SRC, THD_TYPE_LIMIT,      -1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 120, 131, THD_TRK_SRC, THD_TYPE_THRESHOLD,  -1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 120, 132, THD_TRK_SRC, THD_TYPE_BOTH,       -1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // local thresholds ...
     // limit tests ...
-    ,{ 200, 200, THD_TRK_SRC, THD_TYPE_LIMIT,       0, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 200, 201, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 200, 202, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 200, 203, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 200, 204, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 200, 205, THD_TRK_SRC, THD_TYPE_LIMIT,       3,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 200, 206, THD_TRK_SRC, THD_TYPE_LIMIT,       0,  0, IP_ANY, 0, 0, nullptr }
+    ,{ 200, 200, THD_TRK_SRC, THD_TYPE_LIMIT,       0, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 200, 201, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 200, 202, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 200, 203, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 200, 204, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 200, 205, THD_TRK_SRC, THD_TYPE_LIMIT,       3,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 200, 206, THD_TRK_SRC, THD_TYPE_LIMIT,       0,  0, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // threshold tests ...
-    ,{ 300, 300, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, 0, 0, nullptr }
-    ,{ 300, 301, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 300, 302, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  2, IP_ANY, 0, 0, nullptr }
-    ,{ 300, 303, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 300, 304, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, 0, 0, nullptr }
-    ,{ 300, 305, THD_TRK_SRC, THD_TYPE_THRESHOLD,   3, 10, IP_ANY, 0, 0, nullptr }
-    ,{ 300, 306, THD_TRK_SRC, THD_TYPE_THRESHOLD,   5,  2, IP_ANY, 0, 0, nullptr }
+    ,{ 300, 300, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 300, 301, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 300, 302, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  2, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 300, 303, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 300, 304, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 300, 305, THD_TRK_SRC, THD_TYPE_THRESHOLD,   3, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 300, 306, THD_TRK_SRC, THD_TYPE_THRESHOLD,   5,  2, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // both tests ...
-    ,{ 400, 400, THD_TRK_SRC, THD_TYPE_BOTH,        2, 10, IP_ANY, 0, 0, nullptr }
+    ,{ 400, 400, THD_TRK_SRC, THD_TYPE_BOTH,        2, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // ip4 suppress tests ...
-    ,{ 500, 500, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_DST, 0, 0, nullptr }
-    ,{ 500, 501, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_NET, 0, 0, nullptr }
-    ,{ 500, 502, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP4_NET, 0, 0, nullptr }
-    ,{ 500, 503, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP_ANY, 0, 0, nullptr }
+    ,{ 500, 500, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_DST, IP_ANY, 0, 0, nullptr }
+    ,{ 500, 501, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_NET, IP_ANY, 0, 0, nullptr }
+    ,{ 500, 502, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP4_NET, IP_ANY, 0, 0, nullptr }
+    ,{ 500, 503, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // ip6 suppress tests ...
-    ,{ 500, 510, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP6_DST, 0, 0, nullptr }
-    ,{ 500, 511, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NET, 0, 0, nullptr }
-    ,{ 500, 512, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP6_NET, 0, 0, nullptr }
-    ,{ 500, 513, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NONE, 0, 0, nullptr }
+    ,{ 500, 510, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP6_DST, IP_ANY, 0, 0, nullptr }
+    ,{ 500, 511, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NET, IP_ANY,0, 0, nullptr }
+    ,{ 500, 512, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP6_NET,IP_ANY, 0, 0, nullptr }
+    ,{ 500, 513, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NONE,IP_ANY, 0, 0, nullptr }
 
     // ip4 list suppress tests (list only tested with ip6) ...
-    ,{ 500, 520, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1, 0, 0, nullptr }
-    ,{ 500, 521, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1, 0, 0, nullptr }
-    ,{ 500, 530, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2, 0, 0, nullptr }
-    ,{ 500, 531, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2, 0, 0, nullptr }
+    ,{ 500, 520, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1,IP_ANY, 0, 0, nullptr }
+    ,{ 500, 521, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1,IP_ANY, 0, 0, nullptr }
+    ,{ 500, 530, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2,IP_ANY, 0, 0, nullptr }
+    ,{ 500, 531, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2,IP_ANY, 0, 0, nullptr }
 
     // global thresholds ...
     // limit tests ...
-    ,{ 600,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       0, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 601,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 602,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 603,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, 0, 0, nullptr }
-    ,{ 604,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 605,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       3,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 606,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       0,  0, IP_ANY, 0, 0, nullptr }
+    ,{ 600,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       0, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 601,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 602,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 603,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1, 60, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 604,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 605,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       3,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 606,   0, THD_TRK_SRC, THD_TYPE_LIMIT,       0,  0, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // threshold tests ...
-    ,{ 700,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, 0, 0, nullptr }
-    ,{ 701,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 702,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  2, IP_ANY, 0, 0, nullptr }
-    ,{ 703,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 704,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, 0, 0, nullptr }
-    ,{ 705,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   3, 10, IP_ANY, 0, 0, nullptr }
-    ,{ 706,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   5,  2, IP_ANY, 0, 0, nullptr }
+    ,{ 700,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 701,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 702,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  2, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 703,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 704,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   2, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 705,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   3, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 706,   0, THD_TRK_SRC, THD_TYPE_THRESHOLD,   5,  2, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // both tests ...
-    ,{ 800,   0, THD_TRK_SRC, THD_TYPE_BOTH,        2, 10, IP_ANY, 0, 0, nullptr }
+    ,{ 800,   0, THD_TRK_SRC, THD_TYPE_BOTH,        2, 10, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // ip4 suppress tests ...
-    ,{ 900,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_DST, 0, 0, nullptr }
-    ,{ 901,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_NET, 0, 0, nullptr }
-    ,{ 902,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP4_NET, 0, 0, nullptr }
-    ,{ 903,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP_ANY, 0, 0, nullptr }
+    ,{ 900,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_DST, IP_ANY, 0, 0, nullptr }
+    ,{ 901,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_NET, IP_ANY, 0, 0, nullptr }
+    ,{ 902,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP4_NET, IP_ANY, 0, 0, nullptr }
+    ,{ 903,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP_ANY, IP_ANY, 0, 0, nullptr }
 
     // ip6 suppress tests ...
-    ,{ 910,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP6_DST, 0, 0, nullptr }
-    ,{ 911,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NET, 0, 0, nullptr }
-    ,{ 912,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP6_NET, 0, 0, nullptr }
-    ,{ 913,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NONE, 0, 0, nullptr }
+    ,{ 910,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP6_DST,IP_ANY, 0, 0, nullptr }
+    ,{ 911,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NET,IP_ANY, 0, 0, nullptr }
+    ,{ 912,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, "!" IP6_NET,IP_ANY, 0, 0, nullptr }
+    ,{ 913,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP6_NONE,IP_ANY, 0, 0, nullptr }
 
     // ip4 list suppress tests (list only tested with ip6) ...
-    ,{ 920,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1, 0, 0, nullptr }
-    ,{ 921,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1, 0, 0, nullptr }
-    ,{ 930,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2, 0, 0, nullptr }
-    ,{ 931,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2, 0, 0, nullptr }
+    ,{ 920,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1,IP_ANY, 0, 0, nullptr }
+    ,{ 921,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET1,IP_ANY, 0, 0, nullptr }
+    ,{ 930,   0, THD_TRK_SRC, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2,IP_ANY, 0, 0, nullptr }
+    ,{ 931,   0, THD_TRK_DST, THD_TYPE_SUPPRESS,    0,  0, IP4_SET2,IP_ANY, 0, 0, nullptr }
 };
 
 #define NUM_THDS (sizeof(thData)/sizeof(thData[0]))
@@ -680,10 +681,10 @@ static EventData evData[] =
 
 static ThreshData ruleData[] =
 {
-    { 100,   0, THD_TRK_SRC, THD_TYPE_DETECT, 1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 100,   1, THD_TRK_DST, THD_TYPE_DETECT, 1,  1, IP_ANY, 0, 0, nullptr }
-    ,{ 100,   2, THD_TRK_SRC, THD_TYPE_DETECT, 1,  1, IP6_NONE, 0, 0, nullptr }
-    ,{ 100,   3, THD_TRK_DST, THD_TYPE_DETECT, 1,  1, IP6_NONE, 0, 0, nullptr }
+    { 100,   0, THD_TRK_SRC, THD_TYPE_DETECT, 1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 100,   1, THD_TRK_DST, THD_TYPE_DETECT, 1,  1, IP_ANY, IP_ANY, 0, 0, nullptr }
+    ,{ 100,   2, THD_TRK_SRC, THD_TYPE_DETECT, 1,  1, IP6_NONE, IP_ANY,0, 0, nullptr }
+    ,{ 100,   3, THD_TRK_DST, THD_TYPE_DETECT, 1,  1, IP6_NONE, IP_ANY, 0, 0, nullptr }
 };
 
 #define NUM_RULS (sizeof(ruleData)/sizeof(ruleData[0]))
@@ -758,10 +759,11 @@ static void Init(const SnortConfig* sc, ThreshData* base, int max)
         if ( p->type != THD_TYPE_DETECT )
         {
             sfip_var_t* set = p->ip ? sfip_var_from_string(p->ip, "sfthd_test") : nullptr;
+            sfip_var_t* set_2 = p->secondary_ip ? sfip_var_from_string(p->secondary_ip, "sfthd_test") : nullptr;
 
             p->create = sfthd_create_threshold(nullptr,
                 pThdObjs, p->gid, p->sid, p->tracking, p->type, PRIORITY,
-                p->count, p->seconds, set, get_network_policy()->policy_id);
+                p->count, p->seconds, set, set_2, get_network_policy()->policy_id);
 
             continue;
         }
