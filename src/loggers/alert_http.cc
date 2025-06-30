@@ -45,6 +45,7 @@
 #include "protocols/udp.h"
 #include "protocols/vlan.h"
 #include "utils/stats.h"
+#include "events/http_queue.h"
 #include "enrichment/sensor_enrichment.h"
 
 #define DEF_VERIFY_SSL "true"
@@ -53,6 +54,11 @@ using namespace snort;
 using namespace std;
 
 #define LOG_BUFFER (4 * K_BYTES)
+
+#define MODE_BULK   0x01
+#define MODE_NORMAL 0x02
+#define DEF_HTTP_MAX_QUEUE_SIZE 1024
+#define DEF_HTTP_MAX_SECONDS 60000
 
 static THREAD_LOCAL BinaryWriter *json_log;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
@@ -65,6 +71,73 @@ MacVendorDatabase& HTTPMacVendorDB() {
     }
     return *_HTTPMacVendorDB;
 }
+
+struct QueueMsg {
+    std::string msg;
+    std::string host;
+};
+
+class AlertQueue {
+private:
+    std::queue<QueueMsg> events;
+    size_t max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
+
+    std::chrono::milliseconds max_time = std::chrono::seconds{DEF_HTTP_MAX_SECONDS};
+
+    std::chrono::steady_clock::time_point last_flush_time = std::chrono::steady_clock::now();
+
+    cpr::AsyncResponse buildAsyncReq(const std::string& host, const std::string& body) {
+        return cpr::PostAsync(
+            cpr::Url{host},
+            cpr::Body{body},
+            cpr::Header{{"Content-Type", "application/json"}}
+        );
+    }
+
+public:
+    void setMaxQueueSize(size_t size) {
+        max_queue_size = size;
+    }
+
+    void setMaxTime(std::chrono::milliseconds time) {
+        max_time = time;
+    }
+
+    void enqueue(const std::string& host, const std::string& msg) {
+        events.push({msg, host});
+
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time);
+
+        if (events.size() >= max_queue_size || elapsed >= max_time) {
+            flushQueue();
+            last_flush_time = std::chrono::steady_clock::now();
+        }
+    }
+
+    void flushQueue() {
+        if (events.empty()) return;
+
+        std::string current_host = events.front().host;
+        std::string batch_payload = "[";
+
+        bool first = true;
+        while (!events.empty() && events.front().host == current_host) {
+            if (!first) batch_payload += ",";
+            batch_payload += events.front().msg;
+            first = false;
+            events.pop();
+        }
+        batch_payload += "]";
+
+        auto async_response = buildAsyncReq(current_host, batch_payload);
+        AsyncResponseManager::getInstance().addResponse(std::move(async_response));
+
+        last_flush_time = std::chrono::steady_clock::now();
+    }
+};
+
+thread_local AlertQueue alert_queue;
 
 #define S_NAME "alert_http"
 
@@ -912,6 +985,15 @@ static const Parameter s_params[] =
 
         {"geoip_db", Parameter::PT_STRING, nullptr, nullptr,
          "geoip database"},
+    
+        {"mode", Parameter::PT_STRING, nullptr, nullptr,
+         "mode"},
+
+        {"bulk_queue_size", Parameter::PT_INT, nullptr, nullptr,
+        "bulk_queue_size"},
+
+        {"max_queue_flush_time", Parameter::PT_INT, nullptr, nullptr,
+        "max_queue_flush_time"},
 
         {"fields", Parameter::PT_MULTI, json_range, json_deflt,
          "selected fields will be output in given order left to right"},
@@ -939,6 +1021,7 @@ public:
 
 public:
     string sep;
+    uint8_t mode;
     string http_endpoint;
     string enrichment;
     string mac_vendors;
@@ -977,6 +1060,25 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
     else if (v.is("geoip_db"))
         geoip_db = v.get_string();
 
+    else if (v.is("mode")){
+        string _mode = v.get_string();
+        if (_mode == "bulk") {
+            mode = MODE_BULK;
+        }
+    }
+
+    else if(v.is("bulk_queue_size")){
+        uint32_t max_queue_size = v.get_uint32();
+        alert_queue.setMaxQueueSize(max_queue_size);
+    }
+
+    else if(v.is("max_queue_flush_time")){
+        uint32_t max_queue_flush_time = v.get_uint32();
+        alert_queue.setMaxQueueSize(max_queue_flush_time);
+    }
+
+    if(mode != MODE_BULK || mode != MODE_NORMAL) mode = MODE_NORMAL;
+    
     return true;
 }
 
@@ -1015,6 +1117,7 @@ public:
     void alert(Packet *p, const char *msg, const Event &event) override;
 
 private:
+    uint8_t mode;
     string sep;
     string group_name;
     string mac_vendors;
@@ -1035,6 +1138,7 @@ HTTPLogger::HTTPLogger(HTTPModule *m)
     mac_vendors = m->mac_vendors;
     geoip_db = m->geoip_db;
     http_endpoint = m->http_endpoint;
+    mode = m->mode;
 }
 
 void HTTPLogger::open()
@@ -1074,17 +1178,25 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     char *json_event = BinaryWriter_FlushToString(json_log);
     if (json_event)
     {
-        size_t json_event_size = strlen(json_event);
-
-        cpr::AsyncResponse response = cpr::PostAsync(
-            cpr::Url{http_endpoint},
-            cpr::Body{json_event},
-            cpr::Header{{"Content-Type", "application/json"}},
-            cpr::VerifySsl(verify_ssl)
-        );
-
+        std::string json_copy(json_event);
+        switch(mode){
+            case MODE_NORMAL: {
+                auto async_response = cpr::PostAsync(
+                    cpr::Url{http_endpoint},
+                    cpr::Body{json_copy},
+                    cpr::Header{{"Content-Type", "application/json"}},
+                    cpr::VerifySsl(verify_ssl)
+                );
+                AsyncResponseManager::getInstance().addResponse(std::move(async_response));
+                break;
+            }
+            case MODE_BULK:
+                alert_queue.enqueue(http_endpoint, json_copy);
+                break;
+        }
         free(json_event);
     }
+
 }   
 
 //-------------------------------------------------------------------------
