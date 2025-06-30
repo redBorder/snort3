@@ -9,6 +9,8 @@ add_library (events OBJECT
     event_queue.h
     sfeventq.cc
     sfeventq.h
+    http_queue.cc
+    http_queue.h
     ${INCLUDES}
 )
 
