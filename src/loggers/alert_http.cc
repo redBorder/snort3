@@ -1074,11 +1074,11 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
 
     else if(v.is("max_queue_flush_time")){
         uint32_t max_queue_flush_time = v.get_uint32();
-        alert_queue.setMaxQueueSize(max_queue_flush_time);
+        alert_queue.setMaxTime(max_queue_flush_time);
     }
 
     if(mode != MODE_BULK || mode != MODE_NORMAL) mode = MODE_NORMAL;
-    
+
     return true;
 }
 
