@@ -88,7 +88,7 @@ private:
     std::queue<QueueMsg> events;
     std::chrono::steady_clock::time_point last_flush_time = std::chrono::steady_clock::now();
 
-    cpr::AsyncResponse buildAsyncReq(const std::string& host, const std::string& body) {
+    cpr::AsyncResponse build_async_req(const std::string& host, const std::string& body) {
         return cpr::PostAsync(
             cpr::Url{host},
             cpr::Body{body},
@@ -99,25 +99,25 @@ private:
 
 public:
 
-    bool ShouldFlushFIFO(){
+    bool should_flush_fifo(){
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time);
         return events.size() >= global_max_queue_size || elapsed >= global_max_time;
     }
 
-    std::queue<QueueMsg> GetEvents(){
+    std::queue<QueueMsg> get_events(){
         return this->events;
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
         events.push({msg, host});
 
-        if (this->ShouldFlushFIFO()) {
-            flushQueue();
+        if (this->should_flush_fifo()) {
+            flush_queue();
         }
     }
 
-    void flushQueue() {
+    void flush_queue() {
         std::string current_host = events.front().host;
         std::string batch_payload;
         size_t message_count = 0;
@@ -127,7 +127,7 @@ public:
             events.pop();
             ++message_count;
         }
-        auto async_response = buildAsyncReq(current_host, batch_payload);
+        auto async_response = build_async_req(current_host, batch_payload);
         AsyncResponseManager::getInstance().addResponse(std::move(async_response));
         last_flush_time = std::chrono::steady_clock::now();
     }
@@ -136,13 +136,13 @@ public:
 
 static void thread_flush_controller(std::atomic<bool>& running, AlertQueue& queue) {
     while (running) {
-        if (queue.ShouldFlushFIFO()) {
-            queue.flushQueue();
+        if (queue.should_flush_fifo()) {
+            queue.flush_queue();
         }
         std::this_thread::sleep_for(std::chrono::seconds(DEF_CONTROL_THREAD_SLEEP));
     }
-    while (!queue.GetEvents().empty()) {
-        queue.flushQueue();
+    while (!queue.get_events().empty()) {
+        queue.flush_queue();
     }
 }
 
