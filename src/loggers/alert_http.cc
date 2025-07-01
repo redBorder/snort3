@@ -107,6 +107,9 @@ static cpr::AsyncResponse build_async_req(const std::string& host, const std::st
     );
 }
 
+// no mutex needed, each thread has his own copy
+// of the the queue (-z num_thread) so we are
+// sure each thread has his own queue & control thread
 class AlertQueue {
 private:
     struct QueueMsg {
