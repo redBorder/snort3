@@ -77,106 +77,54 @@ struct QueueMsg {
     std::string host;
 };
 
+uint32_t global_max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
+std::chrono::milliseconds global_max_time = std::chrono::seconds{DEF_HTTP_MAX_SECONDS};
+bool global_verify_ssl;
+
 class AlertQueue {
 private:
 
-    bool verify_ssl;
     std::queue<QueueMsg> events;
-    uint32_t max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
-
-    std::chrono::milliseconds max_time = std::chrono::seconds{DEF_HTTP_MAX_SECONDS};
-
     std::chrono::steady_clock::time_point last_flush_time = std::chrono::steady_clock::now();
 
-    cpr::AsyncResponse buildAsyncReq(const std::string& host, const std::string& body, bool verify_ssl) {
+    cpr::AsyncResponse buildAsyncReq(const std::string& host, const std::string& body) {
         return cpr::PostAsync(
             cpr::Url{host},
             cpr::Body{body},
             cpr::Header{{"Content-Type", "application/json"}},
-            cpr::VerifySsl(verify_ssl)
+            cpr::VerifySsl(global_verify_ssl)
         );
     }
 
 public:
-    void setMaxQueueSize(uint32_t size) {
-        this->max_queue_size = size;
-    }
 
-    void setMaxTime(std::chrono::milliseconds time) {
-        this->max_time = time;
-    }
-
-    void setVerifySSL(bool verify_ssl){
-        this->verify_ssl = verify_ssl;
+    bool ShouldFlushFIFO(){
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time);
+        return events.size() >= global_max_queue_size || elapsed >= global_max_time;
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
-        std::cout << "[enqueue] Received message for host: " << host << ", message: " << msg << std::endl;
-
-        std::cout << "[enqueue] max_queue_size: " << this->max_queue_size 
-                << ", max_time: " << this->max_time.count() << "ms" << std::endl;
-
         events.push({msg, host});
-        std::cout << "[enqueue] Queue size after push: " << events.size() << std::endl;
 
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time);
-
-        std::cout << "[enqueue] Time since last flush: " << elapsed.count() << "ms" << std::endl;
-
-        std::cout << "[enqueue] Evaluating flush conditions..." << std::endl;
-        if (events.size() >= this->max_queue_size) {
-            std::cout << "[enqueue] Flush triggered due to queue size: " << events.size() 
-                    << " >= " << this->max_queue_size << std::endl;
-        }
-        if (elapsed >= this->max_time) {
-            std::cout << "[enqueue] Flush triggered due to timeout: " << elapsed.count() 
-                    << "ms >= " << this->max_time.count() << "ms" << std::endl;
-        }
-
-        if (events.size() >= this->max_queue_size || elapsed >= this->max_time) {
-            std::cout << "[enqueue] Flushing queue..." << std::endl;
+        if (this->ShouldFlushFIFO()) {
             flushQueue();
-            last_flush_time = std::chrono::steady_clock::now();
-            std::cout << "[enqueue] Flush complete. Reset last_flush_time." << std::endl;
-        } else {
-            std::cout << "[enqueue] Flush not required." << std::endl;
         }
     }
 
     void flushQueue() {
-        std::cout << "[flushQueue] Called." << std::endl;
-
-        if (events.empty()) {
-            std::cout << "[flushQueue] Queue is empty. Nothing to flush." << std::endl;
-            return;
-        }
-
         std::string current_host = events.front().host;
-        std::cout << "[flushQueue] Starting flush for host: " << current_host << std::endl;
-
         std::string batch_payload;
         size_t message_count = 0;
 
         while (!events.empty() && events.front().host == current_host) {
-            std::cout << "[flushQueue] Adding message to batch: " << events.front().msg << std::endl;
-
-            batch_payload += events.front().msg + "\n";  // Add each JSON object followed by a newline
+            batch_payload += events.front().msg + "\n";
             events.pop();
             ++message_count;
         }
-
-        std::cout << "[flushQueue] Constructed batch payload with " << message_count 
-                << " messages for host: " << current_host << std::endl;
-        std::cout << "[flushQueue] Payload: " << batch_payload << std::endl;
-
-        auto async_response = buildAsyncReq(current_host, batch_payload, verify_ssl);
-        std::cout << "[flushQueue] Async request built. Submitting to AsyncResponseManager." << std::endl;
-
+        auto async_response = buildAsyncReq(current_host, batch_payload);
         AsyncResponseManager::getInstance().addResponse(std::move(async_response));
-
         last_flush_time = std::chrono::steady_clock::now();
-        std::cout << "[flushQueue] Flush complete. Updated last_flush_time." << std::endl;
     }
 
 };
@@ -1076,7 +1024,6 @@ public:
 
 bool HTTPModule::set(const char *, Value &v, SnortConfig *)
 {
-    std::cout << v.is("bulk_queue_size") << std::endl;
     if (v.is("fields"))
     {
         string tok;
@@ -1114,25 +1061,21 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
         if (_mode == "bulk") {
             mode = MODE_BULK;
         }
-        std::cout << _mode << std::endl;
     }
     
     else if(v.is("bulk_queue_size")){
         uint32_t max_queue_size = v.get_uint32();
-        std::cout << "SIZE" << std::endl;
-        alert_queue.setMaxQueueSize(max_queue_size);
+        global_max_queue_size = max_queue_size;
     }
 
     else if(v.is("max_queue_flush_time")){
         uint32_t max_queue_flush_time = v.get_uint32();
-        alert_queue.setMaxTime(std::chrono::milliseconds{max_queue_flush_time});
+        global_max_time = std::chrono::milliseconds{max_queue_flush_time};
     }
 
-    std::cout << static_cast<int>(mode) << std::endl;
     if (mode != MODE_BULK && mode != MODE_NORMAL) {
         mode = MODE_NORMAL;
     }
-    std::cout << static_cast<int>(mode) << std::endl;
     return true;
 }
 
@@ -1194,7 +1137,7 @@ HTTPLogger::HTTPLogger(HTTPModule *m)
     verify_ssl = m->verify_ssl;
     http_endpoint = m->http_endpoint;
     mode = m->mode;
-    alert_queue.setVerifySSL(verify_ssl);
+    global_verify_ssl = verify_ssl;
 }
 
 void HTTPLogger::open()
@@ -1232,13 +1175,11 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     BinaryWriter_Print(json_log, " }");
 
     char *json_event = BinaryWriter_FlushToString(json_log);
-    std::cout << "alert" << std::endl;
     if (json_event)
     {
         std::string json_copy(json_event);
         switch(mode){
             case MODE_NORMAL: {
-                std:cout << "MODE NORMAL" << std::endl;
                 auto async_response = cpr::PostAsync(
                     cpr::Url{http_endpoint},
                     cpr::Body{json_copy},
@@ -1249,7 +1190,6 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
                 break;
             }
             case MODE_BULK:
-                std::cout << "MODE BULK" << std::endl;
                 alert_queue.enqueue(http_endpoint, json_copy);
                 break;
         }
