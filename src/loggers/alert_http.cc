@@ -148,21 +148,17 @@ public:
         std::string current_host = events.front().host;
         std::cout << "[flushQueue] Starting flush for host: " << current_host << std::endl;
 
-        std::string batch_payload = "[";
-        bool first = true;
+        std::string batch_payload;
         size_t message_count = 0;
 
         while (!events.empty() && events.front().host == current_host) {
             std::cout << "[flushQueue] Adding message to batch: " << events.front().msg << std::endl;
 
-            if (!first) batch_payload += ",";
-            batch_payload += events.front().msg;
-            first = false;
+            batch_payload += events.front().msg + "\n";  // Add each JSON object followed by a newline
             events.pop();
             ++message_count;
         }
 
-        batch_payload += "]";
         std::cout << "[flushQueue] Constructed batch payload with " << message_count 
                 << " messages for host: " << current_host << std::endl;
         std::cout << "[flushQueue] Payload: " << batch_payload << std::endl;
