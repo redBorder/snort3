@@ -82,7 +82,7 @@ private:
 
     bool verify_ssl;
     std::queue<QueueMsg> events;
-    size_t max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
+    uint32_t max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
 
     std::chrono::milliseconds max_time = std::chrono::seconds{DEF_HTTP_MAX_SECONDS};
 
@@ -98,8 +98,7 @@ private:
     }
 
 public:
-    void setMaxQueueSize(size_t size) {
-        std::cout << "call -> setMaxQueueSize" << std::endl;
+    void setMaxQueueSize(uint32_t size) {
         max_queue_size = size;
     }
 
@@ -1034,8 +1033,8 @@ static const Parameter s_params[] =
         {"mode", Parameter::PT_STRING, nullptr, nullptr,
          "mode"},
 
-        {"bulk_queue_size", Parameter::PT_INT, nullptr, nullptr,
-        "bulk_queue_size"},
+        {"bulk_queue_size", Parameter::PT_INT, "0:max32", nullptr,
+        "maximum number of events in queue before flushing"},
 
         {"max_queue_flush_time", Parameter::PT_INT, nullptr, nullptr,
         "max_queue_flush_time"},
@@ -1117,9 +1116,8 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
         std::cout << _mode << std::endl;
     }
     else if(v.is("bulk_queue_size")){
-        size_t max_queue_size = v.get_size();
+        uint32_t max_queue_size = v.get_uint32();
         std::cout << "SIZE" << std::endl;
-        std::cout << static_cast<int>(max_queue_size) << std::endl;
         alert_queue.setMaxQueueSize(max_queue_size);
     }
 
