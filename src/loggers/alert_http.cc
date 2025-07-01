@@ -148,7 +148,7 @@ static void thread_flush_controller(std::atomic<bool>& running, AlertQueue& queu
 
 thread_local AlertQueue alert_queue;
 thread_local std::unique_ptr<std::thread> flush_thread;
-thread_local std::atomic<bool> thread_running{false};
+thread_local std::atomic<bool> fifo_flush_thread{false};
 
 #define S_NAME "alert_http"
 
@@ -1165,9 +1165,9 @@ void HTTPLogger::open()
 
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) HTTPMacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
-    thread_running = true;
+    fifo_flush_thread = true;
     flush_thread.reset(new std::thread(thread_flush_controller, 
-                                     std::ref(thread_running),
+                                     std::ref(fifo_flush_thread),
                                      std::ref(alert_queue)));
 
 }
@@ -1182,7 +1182,7 @@ void HTTPLogger::close()
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
 
-    thread_running = false;
+    fifo_flush_thread = false;
     if (flush_thread && flush_thread->joinable()) {
         flush_thread->join();
     }
