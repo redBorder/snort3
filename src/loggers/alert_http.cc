@@ -76,11 +76,6 @@ MacVendorDatabase& HTTPMacVendorDB() {
     return *_HTTPMacVendorDB;
 }
 
-struct QueueMsg {
-    string msg;
-    string host;
-};
-
 uint32_t global_max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
 chrono::milliseconds global_max_time = chrono::seconds{DEF_HTTP_MAX_SECONDS};
 bool global_verify_ssl;
@@ -96,8 +91,12 @@ namespace AlertHTTP {
     }
     class AlertQueue {
     private:
-
-        queue<QueueMsg> events;
+        struct QueueMsg {
+            string msg;
+            string host;
+        };
+        
+        queue<AlertHTTP::AlertQueue::QueueMsg> events;
         chrono::steady_clock::time_point last_flush_time = chrono::steady_clock::now();
 
         string build_payload(string current_host){
@@ -110,7 +109,6 @@ namespace AlertHTTP {
         }
 
     public:
-
         bool should_flush_fifo(){
             auto now = chrono::steady_clock::now();
             auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - last_flush_time);
@@ -139,7 +137,6 @@ namespace AlertHTTP {
 
     };
 }
-
 
 static void thread_flush_controller(atomic<bool>& running, AlertHTTP::AlertQueue& queue) {
     while (running) {
