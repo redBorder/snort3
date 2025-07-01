@@ -59,6 +59,7 @@ using namespace std;
 #define MODE_NORMAL 0x02
 #define DEF_HTTP_MAX_QUEUE_SIZE 1024
 #define DEF_HTTP_MAX_SECONDS 60
+#define DEF_CONTROL_THREAD_SLEEP 60
 
 static THREAD_LOCAL BinaryWriter *json_log;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
@@ -104,6 +105,10 @@ public:
         return events.size() >= global_max_queue_size || elapsed >= global_max_time;
     }
 
+    std::queue<QueueMsg> GetEvents(){
+        return this->events;
+    }
+
     void enqueue(const std::string& host, const std::string& msg) {
         events.push({msg, host});
 
@@ -129,7 +134,21 @@ public:
 
 };
 
+static void thread_flush_controller(std::atomic<bool>& running, AlertQueue& queue) {
+    while (running) {
+        if (queue.ShouldFlushFIFO()) {
+            queue.flushQueue();
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(DEF_CONTROL_THREAD_SLEEP));
+    }
+    while (!queue.GetEvents().empty()) {
+        queue.flushQueue();
+    }
+}
+
 thread_local AlertQueue alert_queue;
+thread_local std::unique_ptr<std::thread> flush_thread;
+thread_local std::atomic<bool> thread_running{false};
 
 #define S_NAME "alert_http"
 
@@ -1146,6 +1165,10 @@ void HTTPLogger::open()
 
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) HTTPMacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
+    thread_running = true;
+    flush_thread.reset(new std::thread(thread_flush_controller, 
+                                     std::ref(thread_running),
+                                     std::ref(alert_queue)));
 
 }
 
@@ -1158,6 +1181,11 @@ void HTTPLogger::close()
         _HTTPMacVendorDB.reset();
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
+
+    thread_running = false;
+    if (flush_thread && flush_thread->joinable()) {
+        flush_thread->join();
+    }
 }
 
 void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
