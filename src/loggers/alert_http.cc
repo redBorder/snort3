@@ -129,10 +129,17 @@ private:
         return batch_payload;
     }
 
+    bool is_time_reached(){
+        return timer_.elapsed() >= global_max_time;
+    }
+
+    bool is_full(){
+        return events_.size() >= global_max_queue_size;
+    }
 public:
     bool should_flush() const {
         if (events_.empty()) return false;
-        return events_.size() >= global_max_queue_size || timer_.elapsed() >= global_max_time;
+        return this->is_full() || this->is_time_reached();
     }
 
     bool is_empty() const {
@@ -140,6 +147,9 @@ public:
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
+        if (this->is_full()) // We pop if queue full hehe (oldest discarded)
+            events_.pop();
+        
         events_.push(QueueMsg{msg, host});
 
         if (should_flush()) {
