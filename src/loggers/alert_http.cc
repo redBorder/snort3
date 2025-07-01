@@ -81,71 +81,95 @@ chrono::milliseconds global_max_time = chrono::seconds{DEF_HTTP_MAX_SECONDS};
 bool global_verify_ssl;
 
 namespace AlertHTTP {
-    static cpr::AsyncResponse build_async_req(const string& host, const string& body) {
-        return cpr::PostAsync(
-            cpr::Url{host},
-            cpr::Body{body},
-            cpr::Header{{"Content-Type", "application/json"}},
-            cpr::VerifySsl(global_verify_ssl)
-        );
+
+class Timer {
+private:
+    std::chrono::steady_clock::time_point last_time_;
+public:
+    Timer() : last_time_(std::chrono::steady_clock::now()) {}
+
+    void reset() {
+        last_time_ = std::chrono::steady_clock::now();
     }
-    class AlertQueue {
-    private:
-        struct QueueMsg {
-            string msg;
-            string host;
-        };
-        
-        queue<AlertHTTP::AlertQueue::QueueMsg> events;
-        chrono::steady_clock::time_point last_flush_time = chrono::steady_clock::now();
 
-        string build_payload(string current_host){
-            string batch_payload;
-            while (!events.empty() && events.front().host == current_host) {
-                batch_payload += events.front().msg + "\n";
-                events.pop();
-            }
-            return batch_payload;
-        }
+    std::chrono::milliseconds elapsed() const {
+        auto now = std::chrono::steady_clock::now();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_);
+    }
+};
 
-    public:
-        bool should_flush_fifo(){
-            auto now = chrono::steady_clock::now();
-            auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - last_flush_time);
-            return events.size() >= global_max_queue_size || elapsed >= global_max_time;
-        }
+static cpr::AsyncResponse build_async_req(const std::string& host, const std::string& body) {
+    return cpr::PostAsync(
+        cpr::Url{host},
+        cpr::Body{body},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::VerifySsl(global_verify_ssl)
+    );
+}
 
-        bool fifo_is_empty(){
-            return events.empty();
-        }
-
-        void enqueue(const string& host, const string& msg) {
-            events.push({msg, host});
-
-            if (this->should_flush_fifo()) {
-                flush_queue();
-            }
-        }
-
-        void flush_queue() {
-            string current_host = events.front().host;
-            string batch_payload = this->build_payload(current_host);
-            auto async_response = AlertHTTP::build_async_req(current_host, batch_payload);
-            AsyncResponseManager::getInstance().addResponse(move(async_response));
-            last_flush_time = chrono::steady_clock::now();
-        }
-
+class AlertQueue {
+private:
+    struct QueueMsg {
+        std::string msg;
+        std::string host;
     };
+
+    std::queue<QueueMsg> events_;
+    Timer timer_;
+
+    std::string build_payload(const std::string& current_host) {
+        std::string batch_payload;
+        while (!events_.empty() && events_.front().host == current_host) {
+            batch_payload += events_.front().msg + "\n";
+            events_.pop();
+        }
+        return batch_payload;
+    }
+
+public:
+    bool should_flush() const {
+        if (events_.empty()) return false;
+        return events_.size() >= global_max_queue_size || timer_.elapsed() >= global_max_time;
+    }
+
+    bool is_empty() const {
+        return events_.empty();
+    }
+
+    void enqueue(const std::string& host, const std::string& msg) {
+        events_.push(QueueMsg{msg, host});
+
+        if (should_flush()) {
+            flush_queue();
+        }
+    }
+
+    void flush_queue() {
+        if (events_.empty()) {
+            return;
+        }
+
+        const std::string& current_host = events_.front().host;
+        std::string batch_payload = build_payload(current_host);
+
+        if (!batch_payload.empty()) {
+            auto async_response = build_async_req(current_host, batch_payload);
+            AsyncResponseManager::getInstance().addResponse(std::move(async_response));
+            timer_.reset();
+        }
+    }
+};
+
 }
 
 static void thread_flush_controller(atomic<bool>& running, AlertHTTP::AlertQueue& queue) {
     while (running) {
-        if (queue.should_flush_fifo()) {
+        if (queue.should_flush()) {
             queue.flush_queue();
         }
         this_thread::sleep_for(chrono::seconds(DEF_CONTROL_THREAD_SLEEP));
     }
-    while (!queue.fifo_is_empty()) {
+    while (!queue.is_empty()) {
         queue.flush_queue();
     }
 }
