@@ -99,6 +99,7 @@ private:
 
 public:
     void setMaxQueueSize(size_t size) {
+        std::cout << "call -> setMaxQueueSize" << std::endl;
         max_queue_size = size;
     }
 
@@ -1107,7 +1108,7 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
     
     else if (v.is("verify_ssl"))
         verify_ssl = v.get_bool();
-        
+
     else if (v.is("mode")){
         string _mode = v.get_string();
         if (_mode == "bulk") {
@@ -1115,9 +1116,10 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
         }
         std::cout << _mode << std::endl;
     }
-
     else if(v.is("bulk_queue_size")){
-        uint32_t max_queue_size = v.get_uint32();
+        size_t max_queue_size = v.get_size();
+        std::cout << "SIZE" << std::endl;
+        std::cout << static_cast<int>(max_queue_size) << std::endl;
         alert_queue.setMaxQueueSize(max_queue_size);
     }
 
