@@ -99,22 +99,22 @@ private:
 
 public:
     void setMaxQueueSize(uint32_t size) {
-        max_queue_size = size;
+        this->max_queue_size = size;
     }
 
     void setMaxTime(std::chrono::milliseconds time) {
-        max_time = time;
+        this->max_time = time;
     }
 
     void setVerifySSL(bool verify_ssl){
-        verify_ssl = verify_ssl;
+        this->verify_ssl = verify_ssl;
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
         std::cout << "[enqueue] Received message for host: " << host << ", message: " << msg << std::endl;
 
-        std::cout << "[enqueue] max_queue_size: " << max_queue_size 
-                << ", max_time: " << max_time.count() << "ms" << std::endl;
+        std::cout << "[enqueue] max_queue_size: " << this->max_queue_size 
+                << ", max_time: " << this->max_time.count() << "ms" << std::endl;
 
         events.push({msg, host});
         std::cout << "[enqueue] Queue size after push: " << events.size() << std::endl;
@@ -125,16 +125,16 @@ public:
         std::cout << "[enqueue] Time since last flush: " << elapsed.count() << "ms" << std::endl;
 
         std::cout << "[enqueue] Evaluating flush conditions..." << std::endl;
-        if (events.size() >= max_queue_size) {
+        if (events.size() >= this->max_queue_size) {
             std::cout << "[enqueue] Flush triggered due to queue size: " << events.size() 
-                    << " >= " << max_queue_size << std::endl;
+                    << " >= " << this->max_queue_size << std::endl;
         }
-        if (elapsed >= max_time) {
+        if (elapsed >= this->max_time) {
             std::cout << "[enqueue] Flush triggered due to timeout: " << elapsed.count() 
-                    << "ms >= " << max_time.count() << "ms" << std::endl;
+                    << "ms >= " << this->max_time.count() << "ms" << std::endl;
         }
 
-        if (events.size() >= max_queue_size || elapsed >= max_time) {
+        if (events.size() >= this->max_queue_size || elapsed >= this->max_time) {
             std::cout << "[enqueue] Flushing queue..." << std::endl;
             flushQueue();
             last_flush_time = std::chrono::steady_clock::now();
