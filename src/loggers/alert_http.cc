@@ -136,27 +136,46 @@ public:
             std::cout << "[enqueue] Flush not required." << std::endl;
         }
     }
-    
+
     void flushQueue() {
-        if (events.empty()) return;
+        std::cout << "[flushQueue] Called." << std::endl;
+
+        if (events.empty()) {
+            std::cout << "[flushQueue] Queue is empty. Nothing to flush." << std::endl;
+            return;
+        }
 
         std::string current_host = events.front().host;
-        std::string batch_payload = "[";
+        std::cout << "[flushQueue] Starting flush for host: " << current_host << std::endl;
 
+        std::string batch_payload = "[";
         bool first = true;
+        size_t message_count = 0;
+
         while (!events.empty() && events.front().host == current_host) {
+            std::cout << "[flushQueue] Adding message to batch: " << events.front().msg << std::endl;
+
             if (!first) batch_payload += ",";
             batch_payload += events.front().msg;
             first = false;
             events.pop();
+            ++message_count;
         }
+
         batch_payload += "]";
+        std::cout << "[flushQueue] Constructed batch payload with " << message_count 
+                << " messages for host: " << current_host << std::endl;
+        std::cout << "[flushQueue] Payload: " << batch_payload << std::endl;
 
         auto async_response = buildAsyncReq(current_host, batch_payload);
+        std::cout << "[flushQueue] Async request built. Submitting to AsyncResponseManager." << std::endl;
+
         AsyncResponseManager::getInstance().addResponse(std::move(async_response));
 
         last_flush_time = std::chrono::steady_clock::now();
+        std::cout << "[flushQueue] Flush complete. Updated last_flush_time." << std::endl;
     }
+
 };
 
 thread_local AlertQueue alert_queue;
