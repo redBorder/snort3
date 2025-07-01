@@ -121,12 +121,12 @@ private:
     Timer timer_;
 
     std::string build_payload(const std::string& current_host) {
-        std::string batch_payload;
+        std::ostringstream batch_payload;
         while (!events_.empty() && events_.front().host == current_host) {
-            batch_payload += events_.front().msg + "\n";
+            batch_payload << events_.front().msg << "\n";
             events_.pop();
         }
-        return batch_payload;
+        return batch_payload.str();
     }
 
     bool is_time_reached() const {
@@ -151,10 +151,6 @@ public:
             events_.pop();
         
         events_.push(QueueMsg{msg, host});
-
-        if (should_flush()) {
-            flush_queue();
-        }
     }
 
     void flush_queue() {
@@ -162,7 +158,7 @@ public:
             return;
         }
 
-        const std::string& current_host = events_.front().host;
+        std::string current_host = events_.front().host;
         std::string batch_payload = build_payload(current_host);
 
         if (!batch_payload.empty()) {
@@ -1257,6 +1253,8 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
             }
             case MODE::BULK:
                 alert_queue.enqueue(http_endpoint, json_copy);
+                if(alert_queue.should_flush())
+                    alert_queue.flush_queue();
                 break;
         }
         free(json_event);
