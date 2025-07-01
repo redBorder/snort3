@@ -104,12 +104,14 @@ public:
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
+        std::cout << "enqueue" << std::endl;
         events.push({msg, host});
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time);
 
         if (events.size() >= max_queue_size || elapsed >= max_time) {
+            std::cout << "flush queue" << std::endl;
             flushQueue();
             last_flush_time = std::chrono::steady_clock::now();
         }
@@ -1065,6 +1067,7 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
         if (_mode == "bulk") {
             mode = MODE_BULK;
         }
+        std::cout << _mode << std::endl;
     }
 
     else if(v.is("bulk_queue_size")){
@@ -1176,6 +1179,7 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     BinaryWriter_Print(json_log, " }");
 
     char *json_event = BinaryWriter_FlushToString(json_log);
+    std::cout << "alert" << std::endl;
     if (json_event)
     {
         std::string json_copy(json_event);
