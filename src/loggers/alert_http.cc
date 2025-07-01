@@ -55,8 +55,11 @@ using namespace std;
 
 #define LOG_BUFFER (4 * K_BYTES)
 
-#define MODE_BULK   0x01
-#define MODE_NORMAL 0x02
+enum MODE {
+    BULK,
+    NORMAL
+};
+
 #define DEF_HTTP_MAX_QUEUE_SIZE 1024
 #define DEF_HTTP_MAX_SECONDS 60
 #define DEF_CONTROL_THREAD_SLEEP 60
@@ -64,31 +67,26 @@ using namespace std;
 static THREAD_LOCAL BinaryWriter *json_log;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
 
-thread_local std::unique_ptr<MacVendorDatabase> _HTTPMacVendorDB = nullptr;
+thread_local unique_ptr<MacVendorDatabase> _HTTPMacVendorDB = nullptr;
 
 MacVendorDatabase& HTTPMacVendorDB() {
     if (!_HTTPMacVendorDB) {
-        _HTTPMacVendorDB = std::make_unique<MacVendorDatabase>();
+        _HTTPMacVendorDB = make_unique<MacVendorDatabase>();
     }
     return *_HTTPMacVendorDB;
 }
 
 struct QueueMsg {
-    std::string msg;
-    std::string host;
+    string msg;
+    string host;
 };
 
 uint32_t global_max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
-std::chrono::milliseconds global_max_time = std::chrono::seconds{DEF_HTTP_MAX_SECONDS};
+chrono::milliseconds global_max_time = chrono::seconds{DEF_HTTP_MAX_SECONDS};
 bool global_verify_ssl;
 
-class AlertQueue {
-private:
-
-    std::queue<QueueMsg> events;
-    std::chrono::steady_clock::time_point last_flush_time = std::chrono::steady_clock::now();
-
-    cpr::AsyncResponse build_async_req(const std::string& host, const std::string& body) {
+namespace AlertHTTP {
+    static cpr::AsyncResponse build_async_req(const string& host, const string& body) {
         return cpr::PostAsync(
             cpr::Url{host},
             cpr::Body{body},
@@ -96,59 +94,68 @@ private:
             cpr::VerifySsl(global_verify_ssl)
         );
     }
+    class AlertQueue {
+    private:
 
-public:
+        queue<QueueMsg> events;
+        chrono::steady_clock::time_point last_flush_time = chrono::steady_clock::now();
 
-    bool should_flush_fifo(){
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time);
-        return events.size() >= global_max_queue_size || elapsed >= global_max_time;
-    }
-
-    std::queue<QueueMsg> get_events(){
-        return this->events;
-    }
-
-    void enqueue(const std::string& host, const std::string& msg) {
-        events.push({msg, host});
-
-        if (this->should_flush_fifo()) {
-            flush_queue();
+        string build_payload(string current_host){
+            string batch_payload;
+            while (!events.empty() && events.front().host == current_host) {
+                batch_payload += events.front().msg + "\n";
+                events.pop();
+            }
+            return batch_payload;
         }
-    }
 
-    void flush_queue() {
-        std::string current_host = events.front().host;
-        std::string batch_payload;
-        size_t message_count = 0;
+    public:
 
-        while (!events.empty() && events.front().host == current_host) {
-            batch_payload += events.front().msg + "\n";
-            events.pop();
-            ++message_count;
+        bool should_flush_fifo(){
+            auto now = chrono::steady_clock::now();
+            auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - last_flush_time);
+            return events.size() >= global_max_queue_size || elapsed >= global_max_time;
         }
-        auto async_response = build_async_req(current_host, batch_payload);
-        AsyncResponseManager::getInstance().addResponse(std::move(async_response));
-        last_flush_time = std::chrono::steady_clock::now();
-    }
 
-};
+        bool fifo_is_empty(){
+            return events.empty();
+        }
 
-static void thread_flush_controller(std::atomic<bool>& running, AlertQueue& queue) {
+        void enqueue(const string& host, const string& msg) {
+            events.push({msg, host});
+
+            if (this->should_flush_fifo()) {
+                flush_queue();
+            }
+        }
+
+        void flush_queue() {
+            string current_host = events.front().host;
+            string batch_payload = this->build_payload(current_host);
+            auto async_response = AlertHTTP::build_async_req(current_host, batch_payload);
+            AsyncResponseManager::getInstance().addResponse(move(async_response));
+            last_flush_time = chrono::steady_clock::now();
+        }
+
+    };
+}
+
+
+static void thread_flush_controller(atomic<bool>& running, AlertHTTP::AlertQueue& queue) {
     while (running) {
         if (queue.should_flush_fifo()) {
             queue.flush_queue();
         }
-        std::this_thread::sleep_for(std::chrono::seconds(DEF_CONTROL_THREAD_SLEEP));
+        this_thread::sleep_for(chrono::seconds(DEF_CONTROL_THREAD_SLEEP));
     }
-    while (!queue.get_events().empty()) {
+    while (!queue.fifo_is_empty()) {
         queue.flush_queue();
     }
 }
 
-thread_local AlertQueue alert_queue;
-thread_local std::unique_ptr<std::thread> flush_thread;
-thread_local std::atomic<bool> fifo_flush_thread{false};
+thread_local AlertHTTP::AlertQueue alert_queue;
+thread_local unique_ptr<thread> flush_thread;
+thread_local atomic<bool> fifo_flush_thread{false};
 
 #define S_NAME "alert_http"
 
@@ -1078,7 +1085,7 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
     else if (v.is("mode")){
         string _mode = v.get_string();
         if (_mode == "bulk") {
-            mode = MODE_BULK;
+            mode = MODE::BULK;
         }
     }
     
@@ -1089,11 +1096,11 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
 
     else if(v.is("max_queue_flush_time")){
         uint32_t max_queue_flush_time = v.get_uint32();
-        global_max_time = std::chrono::milliseconds{max_queue_flush_time};
+        global_max_time = chrono::milliseconds{max_queue_flush_time};
     }
 
-    if (mode != MODE_BULK && mode != MODE_NORMAL) {
-        mode = MODE_NORMAL;
+    if (mode != MODE::BULK && mode != MODE::NORMAL) {
+        mode = MODE::NORMAL;
     }
     return true;
 }
@@ -1140,7 +1147,7 @@ private:
     string geoip_db;
     vector<JsonFunc> fields;
     string enrichment;
-    std::string http_endpoint;
+    string http_endpoint;
     bool verify_ssl;
     char errstr[512];
 };
@@ -1166,9 +1173,9 @@ void HTTPLogger::open()
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) HTTPMacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
     fifo_flush_thread = true;
-    flush_thread.reset(new std::thread(thread_flush_controller, 
-                                     std::ref(fifo_flush_thread),
-                                     std::ref(alert_queue)));
+    flush_thread.reset(new thread(thread_flush_controller, 
+                                     ref(fifo_flush_thread),
+                                     ref(alert_queue)));
 
 }
 
@@ -1205,19 +1212,14 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     char *json_event = BinaryWriter_FlushToString(json_log);
     if (json_event)
     {
-        std::string json_copy(json_event);
+        string json_copy(json_event);
         switch(mode){
-            case MODE_NORMAL: {
-                auto async_response = cpr::PostAsync(
-                    cpr::Url{http_endpoint},
-                    cpr::Body{json_copy},
-                    cpr::Header{{"Content-Type", "application/json"}},
-                    cpr::VerifySsl(verify_ssl)
-                );
-                AsyncResponseManager::getInstance().addResponse(std::move(async_response));
+            case MODE::NORMAL: {
+                cpr::AsyncResponse async_response = AlertHTTP::build_async_req(http_endpoint, json_copy);
+                AsyncResponseManager::getInstance().addResponse(move(async_response));
                 break;
             }
-            case MODE_BULK:
+            case MODE::BULK:
                 alert_queue.enqueue(http_endpoint, json_copy);
                 break;
         }
