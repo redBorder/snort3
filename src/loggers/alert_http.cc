@@ -58,7 +58,7 @@ using namespace std;
 #define MODE_BULK   0x01
 #define MODE_NORMAL 0x02
 #define DEF_HTTP_MAX_QUEUE_SIZE 1024
-#define DEF_HTTP_MAX_SECONDS 60000
+#define DEF_HTTP_MAX_SECONDS 60
 
 static THREAD_LOCAL BinaryWriter *json_log;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
@@ -104,19 +104,39 @@ public:
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
-        std::cout << "enqueue" << std::endl;
+        std::cout << "[enqueue] Received message for host: " << host << ", message: " << msg << std::endl;
+
+        std::cout << "[enqueue] max_queue_size: " << max_queue_size 
+                << ", max_time: " << max_time.count() << "ms" << std::endl;
+
         events.push({msg, host});
+        std::cout << "[enqueue] Queue size after push: " << events.size() << std::endl;
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time);
 
+        std::cout << "[enqueue] Time since last flush: " << elapsed.count() << "ms" << std::endl;
+
+        std::cout << "[enqueue] Evaluating flush conditions..." << std::endl;
+        if (events.size() >= max_queue_size) {
+            std::cout << "[enqueue] Flush triggered due to queue size: " << events.size() 
+                    << " >= " << max_queue_size << std::endl;
+        }
+        if (elapsed >= max_time) {
+            std::cout << "[enqueue] Flush triggered due to timeout: " << elapsed.count() 
+                    << "ms >= " << max_time.count() << "ms" << std::endl;
+        }
+
         if (events.size() >= max_queue_size || elapsed >= max_time) {
-            std::cout << "flush queue" << std::endl;
+            std::cout << "[enqueue] Flushing queue..." << std::endl;
             flushQueue();
             last_flush_time = std::chrono::steady_clock::now();
+            std::cout << "[enqueue] Flush complete. Reset last_flush_time." << std::endl;
+        } else {
+            std::cout << "[enqueue] Flush not required." << std::endl;
         }
     }
-
+    
     void flushQueue() {
         if (events.empty()) return;
 
