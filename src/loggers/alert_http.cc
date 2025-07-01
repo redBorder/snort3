@@ -1076,6 +1076,7 @@ public:
 
 bool HTTPModule::set(const char *, Value &v, SnortConfig *)
 {
+    std::cout << v.is("bulk_queue_size") << std::endl;
     if (v.is("fields"))
     {
         string tok;
@@ -1115,6 +1116,7 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
         }
         std::cout << _mode << std::endl;
     }
+    
     else if(v.is("bulk_queue_size")){
         uint32_t max_queue_size = v.get_uint32();
         std::cout << "SIZE" << std::endl;
