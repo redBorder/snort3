@@ -129,11 +129,11 @@ private:
         return batch_payload;
     }
 
-    bool is_time_reached(){
+    bool is_time_reached() const {
         return timer_.elapsed() >= global_max_time;
     }
 
-    bool is_full(){
+    bool is_full() const {
         return events_.size() >= global_max_queue_size;
     }
 public:
