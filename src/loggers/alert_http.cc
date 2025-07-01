@@ -147,7 +147,7 @@ public:
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
-        if (this->is_full()) // We pop if queue full hehe (oldest discarded)
+        if (this->is_full()) // We pop if queue full (oldest discarded)
             events_.pop();
         
         events_.push(QueueMsg{msg, host});
@@ -163,7 +163,7 @@ public:
 
         if (!batch_payload.empty()) {
             auto async_response = build_async_req(current_host, batch_payload);
-            // For the cool dev (The panic dev) -> we want best effort sending, we dont need to handle errors
+            // We want best effort sending, we dont need to handle errors
             // re-sending alerts or something related, if we lose the req, then we dont do anyhing
             AsyncResponseManager::getInstance().addResponse(std::move(async_response));
             timer_.reset();
