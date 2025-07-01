@@ -1080,8 +1080,11 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
         alert_queue.setMaxTime(std::chrono::milliseconds{max_queue_flush_time});
     }
 
-    if(mode != MODE_BULK || mode != MODE_NORMAL) mode = MODE_NORMAL;
-
+    std::cout << static_cast<int>(mode) << std::endl;
+    if (mode != MODE_BULK && mode != MODE_NORMAL) {
+        mode = MODE_NORMAL;
+    }
+    std::cout << static_cast<int>(mode) << std::endl;
     return true;
 }
 
@@ -1185,6 +1188,7 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
         std::string json_copy(json_event);
         switch(mode){
             case MODE_NORMAL: {
+                std:cout << "MODE NORMAL" << std::endl;
                 auto async_response = cpr::PostAsync(
                     cpr::Url{http_endpoint},
                     cpr::Body{json_copy},
@@ -1195,6 +1199,7 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
                 break;
             }
             case MODE_BULK:
+                std::cout << "MODE BULK" << std::endl;
                 alert_queue.enqueue(http_endpoint, json_copy);
                 break;
         }
