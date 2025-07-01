@@ -79,6 +79,8 @@ struct QueueMsg {
 
 class AlertQueue {
 private:
+
+    bool verify_ssl;
     std::queue<QueueMsg> events;
     size_t max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
 
@@ -86,11 +88,12 @@ private:
 
     std::chrono::steady_clock::time_point last_flush_time = std::chrono::steady_clock::now();
 
-    cpr::AsyncResponse buildAsyncReq(const std::string& host, const std::string& body) {
+    cpr::AsyncResponse buildAsyncReq(const std::string& host, const std::string& body, bool verify_ssl) {
         return cpr::PostAsync(
             cpr::Url{host},
             cpr::Body{body},
-            cpr::Header{{"Content-Type", "application/json"}}
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::VerifySsl(verify_ssl)
         );
     }
 
@@ -101,6 +104,10 @@ public:
 
     void setMaxTime(std::chrono::milliseconds time) {
         max_time = time;
+    }
+
+    void setVerifySSL(bool verify_ssl){
+        verify_ssl = verify_ssl;
     }
 
     void enqueue(const std::string& host, const std::string& msg) {
@@ -163,7 +170,7 @@ public:
                 << " messages for host: " << current_host << std::endl;
         std::cout << "[flushQueue] Payload: " << batch_payload << std::endl;
 
-        auto async_response = buildAsyncReq(current_host, batch_payload);
+        auto async_response = buildAsyncReq(current_host, batch_payload, verify_ssl);
         std::cout << "[flushQueue] Async request built. Submitting to AsyncResponseManager." << std::endl;
 
         AsyncResponseManager::getInstance().addResponse(std::move(async_response));
@@ -1063,6 +1070,7 @@ public:
     string enrichment;
     string mac_vendors;
     string geoip_db;
+    bool verify_ssl;
     vector<JsonFunc> fields;
 };
 
@@ -1096,7 +1104,10 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
 
     else if (v.is("geoip_db"))
         geoip_db = v.get_string();
-
+    
+    else if (v.is("verify_ssl"))
+        verify_ssl = v.get_bool();
+        
     else if (v.is("mode")){
         string _mode = v.get_string();
         if (_mode == "bulk") {
@@ -1178,8 +1189,10 @@ HTTPLogger::HTTPLogger(HTTPModule *m)
     fields.push_back(AddTimestampField);
     mac_vendors = m->mac_vendors;
     geoip_db = m->geoip_db;
+    verify_ssl = m->verify_ssl;
     http_endpoint = m->http_endpoint;
     mode = m->mode;
+    alert_queue.setVerifySSL(verify_ssl);
 }
 
 void HTTPLogger::open()
