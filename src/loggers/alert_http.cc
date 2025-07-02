@@ -1204,10 +1204,12 @@ void HTTPLogger::open()
 
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) HTTPMacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
-    fifo_flush_thread = true;
-    flush_thread.reset(new thread(thread_flush_controller, 
-                                     ref(fifo_flush_thread),
-                                     ref(alert_queue)));
+    if(mode == MODE::BULK){
+        fifo_flush_thread = true;
+        flush_thread.reset(new thread(thread_flush_controller, 
+                                        ref(fifo_flush_thread),
+                                        ref(alert_queue)));
+    }
 
 }
 
@@ -1221,9 +1223,11 @@ void HTTPLogger::close()
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
 
-    fifo_flush_thread = false;
-    if (flush_thread && flush_thread->joinable()) {
-        flush_thread->join();
+    if(mode == MODE::BULK){
+        fifo_flush_thread = false;
+        if (flush_thread && flush_thread->joinable()) {
+            flush_thread->join();
+        }
     }
 }
 
