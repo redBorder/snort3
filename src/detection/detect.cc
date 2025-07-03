@@ -47,6 +47,7 @@
 #include "rules.h"
 #include "tag.h"
 #include "treenodes.h"
+#include <iostream>
 
 using namespace snort;
 
@@ -68,6 +69,7 @@ void CallLogFuncs(Packet* p, ListHead* head, Event* event, const char* msg)
     pc.log_pkts++;
 
     OutputSet* idx = head ? head->LogList : nullptr;
+    std::cout << "msg" << std::endl;
     EventManager::call_loggers(idx, p, msg, event);
 }
 
