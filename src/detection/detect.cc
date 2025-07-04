@@ -75,6 +75,8 @@ void CallLogFuncs(Packet* p, ListHead* head, Event* event, const char* msg)
 
 void CallLogFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 {
+    std::cout << "msg" << std::endl;
+
     const char* act = (head and head->ruleListNode) ? head->ruleListNode->name : "";
     Event event(p->pkth->ts.tv_sec, p->pkth->ts.tv_usec, otn->sigInfo, otn->buffer_setters, act);
 
@@ -110,6 +112,9 @@ void CallLogFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 
 void CallAlertFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 {
+
+    std::cout << "alert" << std::endl;
+
     const char* act = (head and head->ruleListNode) ? head->ruleListNode->name : "";
     Event event(p->pkth->ts.tv_sec, p->pkth->ts.tv_usec, otn->sigInfo, otn->buffer_setters, act);
 
@@ -123,6 +128,14 @@ void CallAlertFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 
     OutputSet* idx = head ? head->AlertList : nullptr;
     EventManager::call_alerters(idx, p, otn->sigInfo.message.c_str(), event);
+}
+
+void RbCallCustomAlert(char* msg, Packet* p, char* act)
+{
+    OutputSet* idx = nullptr;
+    SigInfo sig_info;
+    Event event(0, 0, sig_info, nullptr, act);
+    EventManager::call_alerters(idx, p, msg, event);
 }
 
 /*

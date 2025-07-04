@@ -38,12 +38,17 @@
 #include "utils/util.h"
 #include <optional>
 #include "reputation_parse.h"
+#include "detection/detect.h"
 #include "geoip/rbgeoip.h"
+#include <iostream>
 
 using namespace snort;
 
 THREAD_LOCAL ProfileStats reputation_perf_stats;
 THREAD_LOCAL ReputationStats reputationstats;
+
+const int FLAG_COUNTRY = 1 << 0;
+const int FLAG_CONTINENT = 1 << 1;
 
 static unsigned pub_id = 0;
 
@@ -122,6 +127,109 @@ static inline IPdecision get_reputation(const ReputationConfig& config, Reputati
     return decision;
 }
 
+struct DecisionInfo {
+    const char* type;
+    const char* reason;
+    const char* action;
+};
+
+static const std::unordered_map<IPdecision, DecisionInfo> decision_map = {
+    { BLOCKED,    { "BLOCKED",   "Blocked IP",    "drop"  } },
+    { MONITORED,  { "MONITORED", "Monitoring IP", "alert" } },
+    { TRUSTED,    { "TRUSTED",   "Trusted IP",    "pass"  } }
+};
+
+struct GeoInfo {
+    std::string country;
+    std::string continent;
+};
+
+static bool snort_not_inline(const ReputationConfig& config){
+    return !(config.snort_flags & RUN_FLAG__INLINE);
+}
+
+static GeoInfo lookup_geo(const SfIpString& ip) {
+    GeoInfo gi;
+    auto mgr = GeoIpLoader::Manager::getInstance();
+    gi.country   = mgr->getCountryByIP(ip);
+    gi.continent = mgr->getContinentByIP(ip);
+    if (gi.country.empty())   gi.country = "Unknown";
+    if (gi.continent.empty()) gi.continent = "Unknown";
+    return gi;
+}
+
+static std::string build_alert_message(
+    const DecisionInfo& info,
+    const SfIpString& src_ip,
+    const GeoInfo& src_geo,
+    const SfIpString& dst_ip,
+    const GeoInfo& dst_geo,
+    const char* decision_maker,
+    const int geo_flags
+) {
+    std::ostringstream oss;
+
+    oss << '"';
+
+    oss << "Traffic from " << src_ip
+        << " (located in " << src_geo.country << ", " << src_geo.continent << ") "
+        << "to " << dst_ip
+        << " (located in " << dst_geo.country << ", " << dst_geo.continent << ") ";
+
+    if (info.action == "drop") {
+        oss << "was blocked";
+    } else if (info.action == "pass") {
+        oss << "was allowed";
+    } else if (info.action == "monitor") {
+        oss << "was flagged for monitoring";
+    } else {
+        oss << "resulted in action: " << info.action;
+    }
+
+    if (geo_flags & FLAG_COUNTRY) {
+        oss << " due to country-level restrictions";
+    } else if (geo_flags & FLAG_CONTINENT) {
+        oss << " due to continent-level restrictions";
+    } else {
+        oss << " based on IP-based policy rules";
+    }
+
+    oss << ". Decision type: " << info.type
+        << ". Decision made by: " << decision_maker
+        << '"';
+
+    return oss.str();
+}
+
+std::unordered_map<std::string, std::string> generate_custom_alert(
+    const ip::IpApi& ip_api,
+    IPdecision decision,
+    int geo_flags
+) {
+    if (decision == BLOCKED_SRC || decision == BLOCKED_DST)   decision = BLOCKED;
+    else if (decision == MONITORED_SRC || decision == MONITORED_DST) decision = MONITORED;
+    else if (decision == TRUSTED_SRC || decision == TRUSTED_DST)     decision = TRUSTED;
+
+    const auto& info = decision_map.at(decision);
+
+    SfIpString src_ip, dst_ip;
+    ip_api.get_src()->ntop(src_ip);
+    ip_api.get_dst()->ntop(dst_ip);
+
+    GeoInfo src_geo = lookup_geo(src_ip);
+    GeoInfo dst_geo = lookup_geo(dst_ip);
+
+    const char* decision_maker = "snort";
+    if (geo_flags & FLAG_COUNTRY)   decision_maker = "country";
+    else if (geo_flags & FLAG_CONTINENT) decision_maker = "continent";
+
+    std::string msg = build_alert_message(
+        info, src_ip, src_geo, dst_ip, dst_geo, decision_maker, geo_flags
+    );
+
+    return {{"message", std::move(msg)}, {"action", info.action}};
+}
+
 static bool decision_per_layer(const ReputationConfig& config, ReputationData& data,
     uint32_t& iplist_id, uint32_t ingress_intf, uint32_t egress_intf, const ip::IpApi& ip_api,
     IPdecision* decision_final)
@@ -169,66 +277,68 @@ static bool decision_per_layer(const ReputationConfig& config, ReputationData& d
     return false;
 }
 
-static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api) {
-    auto apply_decision = [&](const std::string& key, bool is_src, const auto& action_map) -> std::optional<IPdecision> {
-        auto it = action_map.find(key);
-        if (it == action_map.end()) {
-            return std::nullopt;
-        }
+static std::optional<IPdecision> apply_geo_action(
+    const std::string& key,
+    bool is_src,
+    const std::unordered_map<std::string, IPdecision>& action_map
+) {
+    auto it = action_map.find(key);
+    if (it == action_map.end()) return std::nullopt;
 
-        IPdecision decision = it->second;
-
-        switch (decision) {
-            case BLOCKED:
-                reputationstats.geo_ip_blocked++;
-                return is_src ? BLOCKED_SRC : BLOCKED_DST;
-            case TRUSTED:
-                reputationstats.geo_ip_trusted++;
-                return is_src ? TRUSTED_SRC : TRUSTED_DST;
-            case MONITORED:
-                reputationstats.geo_ip_monitored++;
-                return is_src ? MONITORED_SRC : MONITORED_DST;
-            default:
-                return decision;
-        }
-    };
-
-    auto resolve = [&](const SfIp* ip, bool is_src) -> IPdecision {
-        if (!ip) {
-            return DECISION_NULL;
-        }
-
-        SfIpString ip_str;
-        if (is_src)
-            ip_api.get_src()->ntop(ip_str);
-        else
-            ip_api.get_dst()->ntop(ip_str);
-
-        std::string ip_string = ip_str;
-        if (ip_string.empty()) {
-            return DECISION_NULL;
-        }
-
-        std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
-        std::string continent = GeoIpLoader::Manager::getInstance()->getContinentByIP(ip_string);
-
-
-        if (auto decision = apply_decision(country, is_src, config.geoip_actions_countries)) {
-            return *decision;
-        }
-
-        if (auto decision = apply_decision(continent, is_src, config.geoip_actions_continents)) {
-            return *decision;
-        }
-
-        return DECISION_NULL;
-    };
-
-    IPdecision result = resolve(ip_api.get_src(), true);
-    if (result == DECISION_NULL) {
-        result = resolve(ip_api.get_dst(), false);
+    IPdecision base_dec = it->second;
+    switch (base_dec) {
+        case BLOCKED:
+            reputationstats.geo_ip_blocked++;
+            return is_src ? BLOCKED_SRC : BLOCKED_DST;
+        case TRUSTED:
+            reputationstats.geo_ip_trusted++;
+            return is_src ? TRUSTED_SRC : TRUSTED_DST;
+        case MONITORED:
+            reputationstats.geo_ip_monitored++;
+            return is_src ? MONITORED_SRC : MONITORED_DST;
+        default:
+            return base_dec;
     }
+}
 
+static std::pair<IPdecision, int> resolve_endpoint_geo(
+    const SfIp* ip_ptr,
+    bool is_src,
+    ip::IpApi& ip_api,
+    const ReputationConfig& config
+) {
+    if (!ip_ptr) return {DECISION_NULL, 0};
+
+    SfIpString ip_str;
+    if (is_src) ip_api.get_src()->ntop(ip_str);
+    else         ip_api.get_dst()->ntop(ip_str);
+
+    std::string key = static_cast<std::string>(ip_str);
+    if (key.empty()) return {DECISION_NULL, 0};
+
+    std::string country   = GeoIpLoader::Manager::getInstance()->getCountryByIP(key);
+    std::string continent = GeoIpLoader::Manager::getInstance()->getContinentByIP(key);
+
+    int flags = 0;
+    if (auto dec = apply_geo_action(country, is_src, config.geoip_actions_countries)) {
+        flags |= FLAG_COUNTRY;
+        return {*dec, flags};
+    }
+    if (auto dec = apply_geo_action(continent, is_src, config.geoip_actions_continents)) {
+        flags |= FLAG_CONTINENT;
+        return {*dec, flags};
+    }
+    return {DECISION_NULL, flags};
+}
+
+std::pair<IPdecision, int> resolve_geo_decision(
+    const ReputationConfig& config,
+    ip::IpApi& ip_api
+) {
+    auto result = resolve_endpoint_geo(ip_api.get_src(), true, ip_api, config);
+    if (result.first == DECISION_NULL) {
+        result = resolve_endpoint_geo(ip_api.get_dst(), false, ip_api, config);
+    }
     return result;
 }
 
@@ -236,7 +346,8 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     Packet* p, uint32_t& iplist_id)
 {
     IPdecision decision_final = DECISION_NULL;
-    if (!(config.snort_flags & RUN_FLAG__INLINE)) return decision_final; // redBorder patch (only act if -Q)
+    if(snort_not_inline(config))
+        return decision_final; // redBorder patch (only act if -Q)
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
 
@@ -249,7 +360,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
         if (config.nested_ip == INNER) {
             decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
             if (decision_final == DECISION_NULL) {
-                decision_final = resolve_geo_decision(config, p->ptrs.ip_api);
+                auto [decision_final, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
             }
             return decision_final;
         }
@@ -285,7 +396,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     }
 
     if (decision_final == DECISION_NULL)
-        decision_final = resolve_geo_decision(config, p->ptrs.ip_api);
+        auto [decision_final, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
 
     if (decision_final != BLOCKED_SRC && decision_final != BLOCKED_DST)
         p->ptrs.ip_api = tmp_api;
@@ -301,7 +412,8 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
     Packet* p, const SfIp* ip)
 {
     IPdecision decision = DECISION_NULL;
-    if (!(config.snort_flags & RUN_FLAG__INLINE)) return decision;  // redBorder patch (only act if -Q)
+    if(snort_not_inline(config))
+        return decision;  // redBorder patch (only act if -Q)
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
 
@@ -324,9 +436,14 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
                 egress_intf);
         }
     }
-        
+    IPdecision original_decision = decision;
+    
     if(decision == DECISION_NULL){
-        decision = resolve_geo_decision(config, p->ptrs.ip_api);
+        auto [decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+        if(original_decision != DECISION_NULL){
+            auto alert = generate_custom_alert(p->ptrs.ip_api, decision, geo_flags);
+            RbCallCustomAlert(const_cast<char*>(alert["message"].c_str()), p, const_cast<char*>(alert["action"].c_str()));
+        }
         if(decision == BLOCKED_SRC || decision == BLOCKED_DST){
             decision = BLOCKED;
         }
@@ -336,7 +453,17 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
         if(decision == TRUSTED_SRC || decision == TRUSTED_DST){
             decision = TRUSTED;
         }
+    } else {
+        if(original_decision != DECISION_NULL){
+            auto alert = generate_custom_alert(p->ptrs.ip_api, original_decision, 0);
+            RbCallCustomAlert(const_cast<char*>(alert["message"].c_str()), p, const_cast<char*>(alert["action"].c_str()));
+        }
     }
+
+    /* redBorder custom alerter, bypass detection engine and all snort decisions
+        it will send alert data directly to the running alerter
+    */
+
     if (decision == BLOCKED)
     {
         // Prior to IPRep logging, IPS policy must be set to the default policy,
@@ -374,7 +501,9 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
         DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
         p->active->trust_session(p, true);
         reputationstats.aux_ip_trusted++;
-    }    return decision;
+    }
+    
+    return decision;
 }
 
 static const char* to_string(IPdecision ipd)
@@ -437,6 +566,11 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
 
     decision = reputation_decision(config, data, p, iplist_id);
     Active* act = p->active;
+
+    if(decision != DECISION_NULL){
+        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, 0);
+        RbCallCustomAlert(const_cast<char*>(alert["message"].c_str()), p, const_cast<char*>(alert["action"].c_str()));
+    }
 
     if (BLOCKED_SRC == decision or BLOCKED_DST == decision)
     {

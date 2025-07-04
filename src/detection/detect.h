@@ -42,6 +42,7 @@ bool snort_log(snort::Packet*);
 void CallLogFuncs(snort::Packet*, ListHead*, class Event*, const char*);
 void CallLogFuncs(snort::Packet*, const OptTreeNode*, ListHead*);
 void CallAlertFuncs(snort::Packet*, const OptTreeNode*, ListHead*);
+void RbCallCustomAlert(char* msg, snort::Packet* p, char* act);
 
 void enable_tags();
 void check_tags(snort::Packet*);
