@@ -69,14 +69,11 @@ void CallLogFuncs(Packet* p, ListHead* head, Event* event, const char* msg)
     pc.log_pkts++;
 
     OutputSet* idx = head ? head->LogList : nullptr;
-    std::cout << "msg" << std::endl;
     EventManager::call_loggers(idx, p, msg, event);
 }
 
 void CallLogFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 {
-    std::cout << "msg" << std::endl;
-
     const char* act = (head and head->ruleListNode) ? head->ruleListNode->name : "";
     Event event(p->pkth->ts.tv_sec, p->pkth->ts.tv_usec, otn->sigInfo, otn->buffer_setters, act);
 
@@ -112,8 +109,6 @@ void CallLogFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 
 void CallAlertFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 {
-
-    std::cout << "alert" << std::endl;
 
     const char* act = (head and head->ruleListNode) ? head->ruleListNode->name : "";
     Event event(p->pkth->ts.tv_sec, p->pkth->ts.tv_usec, otn->sigInfo, otn->buffer_setters, act);
