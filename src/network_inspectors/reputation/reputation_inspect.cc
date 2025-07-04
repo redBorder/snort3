@@ -222,9 +222,9 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     GeoInfo src_geo = lookup_geo(src_ip);
     GeoInfo dst_geo = lookup_geo(dst_ip);
 
-    const char* decision_maker = "snort";
-    if (geo_flags & FLAG_COUNTRY)   decision_maker = "country";
-    else if (geo_flags & FLAG_CONTINENT) decision_maker = "continent";
+    const char* decision_maker = "snort-reputation-ip";
+    if (geo_flags & FLAG_COUNTRY)   decision_maker = "snort-reputation-country";
+    else if (geo_flags & FLAG_CONTINENT) decision_maker = "snort-reputation-continent";
 
     RbCustomAlert alert;
     alert.info = info;
@@ -305,21 +305,32 @@ static std::optional<IPdecision> apply_geo_action(
     bool is_src,
     const std::unordered_map<std::string, IPdecision>& action_map
 ) {
+    std::cout << "[apply_geo_action] key: " << key << ", is_src: " << is_src << std::endl;
+
     auto it = action_map.find(key);
-    if (it == action_map.end()) return std::nullopt;
+    if (it == action_map.end()) {
+        std::cout << "[apply_geo_action] No match found in action_map" << std::endl;
+        return std::nullopt;
+    }
 
     IPdecision base_dec = it->second;
+    std::cout << "[apply_geo_action] Found decision: " << base_dec << std::endl;
+
     switch (base_dec) {
         case BLOCKED:
             reputationstats.geo_ip_blocked++;
+            std::cout << "[apply_geo_action] BLOCKED -> " << (is_src ? "BLOCKED_SRC" : "BLOCKED_DST") << std::endl;
             return is_src ? BLOCKED_SRC : BLOCKED_DST;
         case TRUSTED:
             reputationstats.geo_ip_trusted++;
+            std::cout << "[apply_geo_action] TRUSTED -> " << (is_src ? "TRUSTED_SRC" : "TRUSTED_DST") << std::endl;
             return is_src ? TRUSTED_SRC : TRUSTED_DST;
         case MONITORED:
             reputationstats.geo_ip_monitored++;
+            std::cout << "[apply_geo_action] MONITORED -> " << (is_src ? "MONITORED_SRC" : "MONITORED_DST") << std::endl;
             return is_src ? MONITORED_SRC : MONITORED_DST;
         default:
+            std::cout << "[apply_geo_action] Default case, returning base_dec: " << base_dec << std::endl;
             return base_dec;
     }
 }
@@ -330,27 +341,47 @@ static std::pair<IPdecision, int> resolve_endpoint_geo(
     ip::IpApi& ip_api,
     const ReputationConfig& config
 ) {
-    if (!ip_ptr) return {DECISION_NULL, 0};
+    std::cout << "[resolve_endpoint_geo] Begin. is_src: " << is_src << std::endl;
+
+    if (!ip_ptr) {
+        std::cout << "[resolve_endpoint_geo] ip_ptr is null" << std::endl;
+        return {DECISION_NULL, 0};
+    }
 
     SfIpString ip_str;
-    if (is_src) ip_api.get_src()->ntop(ip_str);
-    else         ip_api.get_dst()->ntop(ip_str);
+    if (is_src) {
+        ip_api.get_src()->ntop(ip_str);
+        std::cout << "[resolve_endpoint_geo] Source IP string: " << static_cast<std::string>(ip_str) << std::endl;
+    } else {
+        ip_api.get_dst()->ntop(ip_str);
+        std::cout << "[resolve_endpoint_geo] Destination IP string: " << static_cast<std::string>(ip_str) << std::endl;
+    }
 
     std::string key = static_cast<std::string>(ip_str);
-    if (key.empty()) return {DECISION_NULL, 0};
+    if (key.empty()) {
+        std::cout << "[resolve_endpoint_geo] IP string is empty" << std::endl;
+        return {DECISION_NULL, 0};
+    }
 
     std::string country   = GeoIpLoader::Manager::getInstance()->getCountryByIP(key);
     std::string continent = GeoIpLoader::Manager::getInstance()->getContinentByIP(key);
 
+    std::cout << "[resolve_endpoint_geo] Geo lookup for IP: " << key << " => Country: " << country << ", Continent: " << continent << std::endl;
+
     int flags = 0;
     if (auto dec = apply_geo_action(country, is_src, config.geoip_actions_countries)) {
+        std::cout << "[resolve_endpoint_geo] Country decision applied: " << *dec << std::endl;
         flags |= FLAG_COUNTRY;
         return {*dec, flags};
     }
+
     if (auto dec = apply_geo_action(continent, is_src, config.geoip_actions_continents)) {
+        std::cout << "[resolve_endpoint_geo] Continent decision applied: " << *dec << std::endl;
         flags |= FLAG_CONTINENT;
         return {*dec, flags};
     }
+
+    std::cout << "[resolve_endpoint_geo] No decision found, returning DECISION_NULL" << std::endl;
     return {DECISION_NULL, flags};
 }
 
@@ -358,10 +389,18 @@ std::pair<IPdecision, int> resolve_geo_decision(
     const ReputationConfig& config,
     ip::IpApi& ip_api
 ) {
+    std::cout << "[resolve_geo_decision] Start resolving source IP" << std::endl;
+
     auto result = resolve_endpoint_geo(ip_api.get_src(), true, ip_api, config);
+
     if (result.first == DECISION_NULL) {
+        std::cout << "[resolve_geo_decision] No source decision, resolving destination IP" << std::endl;
         result = resolve_endpoint_geo(ip_api.get_dst(), false, ip_api, config);
+    } else {
+        std::cout << "[resolve_geo_decision] Source decision found: " << result.first << std::endl;
     }
+
+    std::cout << "[resolve_geo_decision] Final decision: " << result.first << ", flags: " << result.second << std::endl;
     return result;
 }
 
