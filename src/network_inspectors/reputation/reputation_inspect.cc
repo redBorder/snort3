@@ -158,44 +158,46 @@ static GeoInfo lookup_geo(const SfIpString& ip) {
     return gi;
 }
 
-static std::string build_alert_message(
-    const DecisionInfo& info,
-    const SfIpString& src_ip,
-    const GeoInfo& src_geo,
-    const SfIpString& dst_ip,
-    const GeoInfo& dst_geo,
-    const char* decision_maker,
-    const int geo_flags
-) {
+struct RbCustomAlert {
+    DecisionInfo info;
+    std::string src_ip;
+    std::string dst_ip;
+    GeoInfo src_geo;
+    GeoInfo dst_geo;
+    const char* decision_maker;
+    int geo_flags;
+};
+
+static std::string build_alert_message(const RbCustomAlert& data) {
     std::ostringstream oss;
 
     oss << '"';
 
-    oss << "Traffic from " << src_ip
-        << " (located in " << src_geo.country << ", " << src_geo.continent << ") "
-        << "to " << dst_ip
-        << " (located in " << dst_geo.country << ", " << dst_geo.continent << ") ";
+    oss << "Traffic from " << data.src_ip
+        << " (located in " << data.src_geo.country << ", " << data.src_geo.continent << ") "
+        << "to " << data.dst_ip
+        << " (located in " << data.dst_geo.country << ", " << data.dst_geo.continent << ") ";
 
-    if (info.action == "drop") {
+    if (data.info.action == "drop") {
         oss << "was blocked";
-    } else if (info.action == "pass") {
+    } else if (data.info.action == "pass") {
         oss << "was allowed";
-    } else if (info.action == "monitor") {
+    } else if (data.info.action == "monitor") {
         oss << "was flagged for monitoring";
     } else {
-        oss << "resulted in action: " << info.action;
+        oss << "resulted in action: " << data.info.action;
     }
 
-    if (geo_flags & FLAG_COUNTRY) {
+    if (data.geo_flags & FLAG_COUNTRY) {
         oss << " due to country-level restrictions";
-    } else if (geo_flags & FLAG_CONTINENT) {
+    } else if (data.geo_flags & FLAG_CONTINENT) {
         oss << " due to continent-level restrictions";
     } else {
         oss << " based on IP-based policy rules";
     }
 
-    oss << ". Decision type: " << info.type
-        << ". Decision made by: " << decision_maker
+    oss << ". Decision type: " << data.info.type
+        << ". Decision made by: " << data.decision_maker
         << '"';
 
     return oss.str();
@@ -223,9 +225,16 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     if (geo_flags & FLAG_COUNTRY)   decision_maker = "country";
     else if (geo_flags & FLAG_CONTINENT) decision_maker = "continent";
 
-    std::string msg = build_alert_message(
-        info, src_ip, src_geo, dst_ip, dst_geo, decision_maker, geo_flags
-    );
+    RbCustomAlert alert;
+    alert.info = info;
+    alert.src_ip = src_ip;
+    alert.src_geo = src_geo;
+    alert.dst_ip = dst_ip;
+    alert.dst_geo = dst_geo;
+    alert.decision_maker = decision_maker;
+    alert.geo_flags = geo_flags;
+
+    std::string msg = build_alert_message(alert);
 
     return {{"message", std::move(msg)}, {"action", info.action}};
 }
