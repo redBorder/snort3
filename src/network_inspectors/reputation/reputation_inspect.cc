@@ -183,7 +183,7 @@ static std::string build_alert_message(const RbCustomAlert& data) {
         oss << "was blocked";
     } else if (data.info.action == "pass") {
         oss << "was allowed";
-    } else if (data.info.action == "monitor") {
+    } else if (data.info.action == "alert") {
         oss << "was flagged for monitoring";
     } else {
         oss << "resulted in action: " << data.info.action;
@@ -501,38 +501,32 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
                 egress_intf);
         }
     }
+
     IPdecision original_decision = decision;
-    
-    if (decision == DECISION_NULL){
-        auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
 
-        if(original_decision != DECISION_NULL){
-            auto alert = generate_custom_alert(p->ptrs.ip_api, new_decision, geo_flags);
-            GeoAlert rep_alert;
-            rep_alert.msg = const_cast<char*>(alert["message"].c_str());
-            rep_alert.action = const_cast<char*>(alert["action"].c_str());
-            FireCustomAlert(rep_alert, p);
-        }
+    auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
 
-        if(new_decision == BLOCKED_SRC || new_decision == BLOCKED_DST){
-            new_decision = BLOCKED;
-        }
-        if(new_decision == MONITORED_SRC || new_decision == MONITORED_DST){
-            new_decision = MONITORED;
-        }
-        if(new_decision == TRUSTED_SRC || new_decision == TRUSTED_DST){
-            new_decision = TRUSTED;
-        }
+    if(new_decision == BLOCKED_SRC || new_decision == BLOCKED_DST){
+        new_decision = BLOCKED;
+    } else if(new_decision == MONITORED_SRC || new_decision == MONITORED_DST){
+        new_decision = MONITORED;
+    } else if(new_decision == TRUSTED_SRC || new_decision == TRUSTED_DST){
+        new_decision = TRUSTED;
+    }
 
-        decision = new_decision;
-    } else {
-        if(original_decision != DECISION_NULL){
-            auto alert = generate_custom_alert(p->ptrs.ip_api, original_decision, 0);
-            GeoAlert rep_alert;
-            rep_alert.msg = const_cast<char*>(alert["message"].c_str());
-            rep_alert.action = const_cast<char*>(alert["action"].c_str());
-            FireCustomAlert(rep_alert, p);
-        }
+    if(new_decision == DECISION_NULL){
+        new_decision = original_decision;
+        geo_flags = 0;
+    }
+
+    decision = new_decision;
+
+    if(decision != DECISION_NULL){
+        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, geo_flags);
+        GeoAlert rep_alert;
+        rep_alert.msg = const_cast<char*>(alert["message"].c_str());
+        rep_alert.action = const_cast<char*>(alert["action"].c_str());
+        FireCustomAlert(rep_alert, p);
     }
 
     /* redBorder custom alerter, bypass detection engine and all snort decisions
