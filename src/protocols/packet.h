@@ -125,7 +125,6 @@ struct SO_PUBLIC Packet
     Obfuscator* obfuscator = nullptr;
 
     uint32_t packet_flags;      /* special flags for the packet */
-    uint32_t geo_flags;         /* special flags for the GeoIP */
     uint32_t xtradata_mask;
     uint32_t proto_bits;        /* protocols contained within this packet */
 
@@ -325,12 +324,6 @@ struct SO_PUBLIC Packet
     void set_offloaded()
     { ts_packet_flags |= TS_PKT_OFFLOADED; }
 
-    void set_geo_flags(uint32_t flags)
-    { geo_flags = flags; }
-
-    uint32_t get_geo_flags()
-    { return geo_flags; }
-    
     void clear_offloaded()
     { ts_packet_flags &= (~TS_PKT_OFFLOADED); }
 

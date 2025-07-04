@@ -125,10 +125,11 @@ void CallAlertFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
     EventManager::call_alerters(idx, p, otn->sigInfo.message.c_str(), event);
 }
 
-void RbCallCustomAlert(char* msg, char* act, SigInfo sig, Packet* p)
+void RbCallCustomAlert(char* msg, char* act, SigInfo sig, Packet* p, uint32_t priority)
 {
     OutputSet* idx = nullptr;
     SigInfo sig_info = sig;
+    sig_info.priority = priority;
     Event event(0, 0, sig_info, nullptr, act);
     EventManager::call_alerters(idx, p, msg, event);
 }

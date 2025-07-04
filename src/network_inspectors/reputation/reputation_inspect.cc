@@ -207,7 +207,7 @@ static std::string build_alert_message(const RbCustomAlert& data) {
 std::unordered_map<std::string, std::string> generate_custom_alert(
     const ip::IpApi& ip_api,
     IPdecision decision,
-    Packet* p
+    int geo_flags
 ) {
     if (decision == BLOCKED_SRC || decision == BLOCKED_DST)   decision = BLOCKED;
     else if (decision == MONITORED_SRC || decision == MONITORED_DST) decision = MONITORED;
@@ -223,8 +223,8 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     GeoInfo dst_geo = lookup_geo(dst_ip);
 
     const char* decision_maker = "snort-reputation-ip";
-    if (p->get_geo_flags() & FLAG_COUNTRY)   decision_maker = "snort-reputation-country";
-    else if (p->get_geo_flags() & FLAG_CONTINENT) decision_maker = "snort-reputation-continent";
+    if (geo_flags & FLAG_COUNTRY)   decision_maker = "snort-reputation-country";
+    else if (geo_flags & FLAG_CONTINENT) decision_maker = "snort-reputation-continent";
 
     RbCustomAlert alert;
     alert.info = info;
@@ -233,7 +233,7 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     alert.dst_ip = dst_ip;
     alert.dst_geo = dst_geo;
     alert.decision_maker = decision_maker;
-    alert.geo_flags = p->get_geo_flags();
+    alert.geo_flags = geo_flags;
 
     std::string msg = build_alert_message(alert);
 
@@ -385,10 +385,9 @@ static std::pair<IPdecision, int> resolve_endpoint_geo(
     return {DECISION_NULL, flags};
 }
 
-IPdecision resolve_geo_decision(
+std::pair<IPdecision, int> resolve_geo_decision(
     const ReputationConfig& config,
-    ip::IpApi& ip_api,
-    Packet* p
+    ip::IpApi& ip_api
 ) {
     std::cout << "[resolve_geo_decision] Start resolving source IP" << std::endl;
 
@@ -402,67 +401,88 @@ IPdecision resolve_geo_decision(
     }
 
     std::cout << "[resolve_geo_decision] Final decision: " << result.first << ", flags: " << result.second << std::endl;
-    p->set_geo_flags(result.second);
-    return result.first;
+    return result;
 }
 
-static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
-    Packet* p, uint32_t& iplist_id)
-{
+static std::pair<IPdecision,int> reputation_decision(
+    const ReputationConfig& config,
+    ReputationData& data,
+    Packet* p,
+    uint32_t& iplist_id
+) {
     IPdecision decision_final = DECISION_NULL;
-    if(snort_not_inline(config))
-        return decision_final; // redBorder patch (only act if -Q)
-    uint32_t ingress_intf = 0;
-    uint32_t egress_intf = 0;
+    int geo_flags = 0;
 
+    if (snort_not_inline(config))
+        return {decision_final, geo_flags}; // redBorder patch (only act if -Q)
+
+    uint32_t ingress_intf = 0, egress_intf = 0;
     if (p->pkth) {
         ingress_intf = p->pkth->ingress_index;
-        egress_intf = (p->pkth->egress_index < 0) ? ingress_intf : p->pkth->egress_index;
+        egress_intf  = (p->pkth->egress_index < 0) 
+                     ? ingress_intf 
+                     : p->pkth->egress_index;
     }
 
-    if (data.ip_list) {
-        if (config.nested_ip == INNER) {
-            decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
-            if (decision_final == DECISION_NULL) {
-                IPdecision new_decision = resolve_geo_decision(config, p->ptrs.ip_api, p);
-                decision_final = new_decision;
-            }
-            return decision_final;
+    // Inner‐only IP‐list check
+    if (data.ip_list && config.nested_ip == INNER) {
+        decision_per_layer(
+            config, data, iplist_id,
+            ingress_intf, egress_intf,
+            p->ptrs.ip_api, &decision_final
+        );
+
+        if (decision_final == DECISION_NULL) {
+            auto [new_decision, gf] = resolve_geo_decision(config, p->ptrs.ip_api);
+            decision_final = new_decision;
+            geo_flags     = gf;
         }
+
+        return {decision_final, geo_flags};
     }
 
     // Save/restore for OUTER or ALL
     ip::IpApi blocked_api;
-    ip::IpApi tmp_api = p->ptrs.ip_api;
-    int8_t num_layer = 0;
-    IpProtocol tmp_next = p->get_ip_proto_next();
+    ip::IpApi tmp_api     = p->ptrs.ip_api;
+    IpProtocol tmp_next   = p->get_ip_proto_next();
+    int8_t     num_layer  = 0;
+
     if (data.ip_list) {
         if (config.nested_ip == OUTER) {
             layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer);
-            decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
+            decision_per_layer(
+                config, data, iplist_id, ingress_intf, egress_intf,
+                p->ptrs.ip_api, &decision_final
+            );
         }
         else if (config.nested_ip == ALL) {
             bool done = false;
             IPdecision decision_current = DECISION_NULL;
-
-            while (!done && layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer)) {
-                done = decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api,
-                    &decision_current);
+            while (!done && layer::set_outer_ip_api(
+                    p, p->ptrs.ip_api, p->ip_proto_next, num_layer
+                )) {
+                done = decision_per_layer(
+                    config, data, iplist_id, ingress_intf, egress_intf,
+                    p->ptrs.ip_api, &decision_current
+                );
                 if (decision_current != DECISION_NULL) {
                     if (decision_current == BLOCKED_SRC || decision_current == BLOCKED_DST)
                         blocked_api = p->ptrs.ip_api;
-                    decision_final = decision_current;
+
+                    decision_final   = decision_current;
                     decision_current = DECISION_NULL;
                 }
             }
-        } else {
-            assert(false); // Should never happen
+        }
+        else {
+            assert(false); // unreachable
         }
     }
 
     if (decision_final == DECISION_NULL) {
-        IPdecision new_decision = resolve_geo_decision(config, p->ptrs.ip_api, p);
+        auto [new_decision, gf] = resolve_geo_decision(config, p->ptrs.ip_api);
         decision_final = new_decision;
+        geo_flags      = gf;
     }
 
     if (decision_final != BLOCKED_SRC && decision_final != BLOCKED_DST)
@@ -472,7 +492,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
 
     p->ip_proto_next = tmp_next;
 
-    return decision_final;
+    return {decision_final, geo_flags};
 }
 
 static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, ReputationData& data,
@@ -506,7 +526,7 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
 
     IPdecision original_decision = decision;
 
-    IPdecision new_decision = resolve_geo_decision(config, p->ptrs.ip_api, p);
+    auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
 
     if(new_decision == BLOCKED_SRC || new_decision == BLOCKED_DST){
         new_decision = BLOCKED;
@@ -518,12 +538,13 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
 
     if(new_decision == DECISION_NULL){
         new_decision = original_decision;
+        geo_flags = 0;
     }
 
     decision = new_decision;
 
     if(decision != DECISION_NULL){
-        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, p);
+        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, geo_flags);
         GeoAlert rep_alert;
         rep_alert.msg = const_cast<char*>(alert["message"].c_str());
         rep_alert.action = const_cast<char*>(alert["action"].c_str());
@@ -629,36 +650,42 @@ static void populate_trace_data(IPdecision& decision, Packet* p, uint32_t iplist
         iplist_id, addr, to_string(decision));
 }
 
-static void snort_reputation(const ReputationConfig& config, ReputationData& data, Packet* p)
-{
-    IPdecision decision;
-    uint32_t iplist_id;
+static void snort_reputation(
+    const ReputationConfig& config,
+    ReputationData& data,
+    Packet* p
+) {
+    uint32_t iplist_id = 0;
+    auto [decision, geo_flags] =
+        reputation_decision(config, data, p, iplist_id);
 
-    decision = reputation_decision(config, data, p, iplist_id);
     Active* act = p->active;
 
-    if(decision != DECISION_NULL){
-        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, 0);
+    if (decision != DECISION_NULL) {
+        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, geo_flags);
         GeoAlert rep_alert;
-        rep_alert.msg = const_cast<char*>(alert["message"].c_str());
+        rep_alert.msg    = const_cast<char*>(alert["message"].c_str());
         rep_alert.action = const_cast<char*>(alert["action"].c_str());
         FireCustomAlert(rep_alert, p);
     }
 
-    if (BLOCKED_SRC == decision or BLOCKED_DST == decision)
-    {
-        unsigned blocklist_event = (BLOCKED_SRC == decision) ?
-            REPUTATION_EVENT_BLOCKLIST_SRC : REPUTATION_EVENT_BLOCKLIST_DST;
+    // BLOCKED_SRC / BLOCKED_DST handling
+    if (decision == BLOCKED_SRC || decision == BLOCKED_DST) {
+        unsigned blocklist_event =
+            (decision == BLOCKED_SRC)
+                ? REPUTATION_EVENT_BLOCKLIST_SRC
+                : REPUTATION_EVENT_BLOCKLIST_DST;
 
         DetectionEngine::queue_event(GID_REPUTATION, blocklist_event);
-        ReputationVerdictEvent event(p, REP_VERDICT_BLOCKED, iplist_id, BLOCKED_SRC == decision);
-        DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
+        ReputationVerdictEvent ev(p, REP_VERDICT_BLOCKED,
+                                  iplist_id, decision == BLOCKED_SRC);
+        DataBus::publish(pub_id,
+                         ReputationEventIds::REP_MATCHED, ev);
+
         act->drop_packet(p, true);
-        // disable all preproc analysis and detection for this packet
         DetectionEngine::disable_all(p);
         act->block_session(p, true);
-        if (p->flow)
-            p->flow->set_state(Flow::FlowState::BLOCK);
+        if (p->flow) p->flow->set_state(Flow::FlowState::BLOCK);
         act->set_drop_reason("reputation");
         reputationstats.blocked++;
         if (PacketTracer::is_active())
@@ -670,40 +697,44 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
         return;
     }
 
-    if ( p->flow and p->flow->reload_id > 0 )
-    {
-        const auto& aux_ip_list =  p->flow->stash->get_aux_ip_list();
-        for ( const auto& ip : aux_ip_list )
-        {
-            if ( BLOCKED == snort_reputation_aux_ip(config, data, p, &ip) )
+    // Aux‐IP replay
+    if (p->flow && p->flow->reload_id > 0) {
+        const auto& aux_ip_list = p->flow->stash->get_aux_ip_list();
+        for (const auto& ip : aux_ip_list) {
+            if (snort_reputation_aux_ip(config, data, p, &ip) == BLOCKED)
                 return;
         }
     }
 
-    if (DECISION_NULL == decision)
-    {
+    if (decision == DECISION_NULL) {
         return;
     }
 
-    if (MONITORED_SRC == decision or MONITORED_DST == decision)
-    {
-        unsigned monitor_event = (MONITORED_SRC == decision) ?
-            REPUTATION_EVENT_MONITOR_SRC : REPUTATION_EVENT_MONITOR_DST;
+    // MONITORED / TRUSTED events
+    if (decision == MONITORED_SRC || decision == MONITORED_DST) {
+        unsigned monitor_event =
+            (decision == MONITORED_SRC)
+                ? REPUTATION_EVENT_MONITOR_SRC
+                : REPUTATION_EVENT_MONITOR_DST;
 
         DetectionEngine::queue_event(GID_REPUTATION, monitor_event);
-        ReputationVerdictEvent event(p, REP_VERDICT_MONITORED, iplist_id, MONITORED_SRC == decision);
-        DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
+        ReputationVerdictEvent ev(p, REP_VERDICT_MONITORED,
+                                  iplist_id, decision == MONITORED_SRC);
+        DataBus::publish(pub_id,
+                         ReputationEventIds::REP_MATCHED, ev);
         reputationstats.monitored++;
     }
+    else if (decision == TRUSTED_SRC || decision == TRUSTED_DST) {
+        unsigned allow_event =
+            (decision == TRUSTED_SRC)
+                ? REPUTATION_EVENT_ALLOWLIST_SRC
+                : REPUTATION_EVENT_ALLOWLIST_DST;
 
-    else if (TRUSTED_SRC == decision or TRUSTED_DST == decision)
-    {
-        unsigned allowlist_event = (TRUSTED_SRC == decision) ?
-            REPUTATION_EVENT_ALLOWLIST_SRC : REPUTATION_EVENT_ALLOWLIST_DST;
-
-        DetectionEngine::queue_event(GID_REPUTATION, allowlist_event);
-        ReputationVerdictEvent event(p, REP_VERDICT_TRUSTED, iplist_id, TRUSTED_SRC == decision);
-        DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
+        DetectionEngine::queue_event(GID_REPUTATION, allow_event);
+        ReputationVerdictEvent ev(p, REP_VERDICT_TRUSTED,
+                                  iplist_id, decision == TRUSTED_SRC);
+        DataBus::publish(pub_id,
+                         ReputationEventIds::REP_MATCHED, ev);
         act->trust_session(p, true);
         reputationstats.trusted++;
     }
