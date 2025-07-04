@@ -207,7 +207,7 @@ static std::string build_alert_message(const RbCustomAlert& data) {
 std::unordered_map<std::string, std::string> generate_custom_alert(
     const ip::IpApi& ip_api,
     IPdecision decision,
-    int geo_flags
+    Packet* p
 ) {
     if (decision == BLOCKED_SRC || decision == BLOCKED_DST)   decision = BLOCKED;
     else if (decision == MONITORED_SRC || decision == MONITORED_DST) decision = MONITORED;
@@ -223,8 +223,8 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     GeoInfo dst_geo = lookup_geo(dst_ip);
 
     const char* decision_maker = "snort-reputation-ip";
-    if (geo_flags & FLAG_COUNTRY)   decision_maker = "snort-reputation-country";
-    else if (geo_flags & FLAG_CONTINENT) decision_maker = "snort-reputation-continent";
+    if (p->get_geo_flags() & FLAG_COUNTRY)   decision_maker = "snort-reputation-country";
+    else if (p->get_geo_flags() & FLAG_CONTINENT) decision_maker = "snort-reputation-continent";
 
     RbCustomAlert alert;
     alert.info = info;
@@ -233,7 +233,7 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     alert.dst_ip = dst_ip;
     alert.dst_geo = dst_geo;
     alert.decision_maker = decision_maker;
-    alert.geo_flags = geo_flags;
+    alert.geo_flags = p->get_geo_flags();
 
     std::string msg = build_alert_message(alert);
 
@@ -385,9 +385,10 @@ static std::pair<IPdecision, int> resolve_endpoint_geo(
     return {DECISION_NULL, flags};
 }
 
-std::pair<IPdecision, int> resolve_geo_decision(
+IPdecision resolve_geo_decision(
     const ReputationConfig& config,
-    ip::IpApi& ip_api
+    ip::IpApi& ip_api,
+    Packet* p
 ) {
     std::cout << "[resolve_geo_decision] Start resolving source IP" << std::endl;
 
@@ -401,7 +402,8 @@ std::pair<IPdecision, int> resolve_geo_decision(
     }
 
     std::cout << "[resolve_geo_decision] Final decision: " << result.first << ", flags: " << result.second << std::endl;
-    return result;
+    p->set_geo_flags(result.second);
+    return result.first;
 }
 
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
@@ -422,7 +424,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
         if (config.nested_ip == INNER) {
             decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
             if (decision_final == DECISION_NULL) {
-                auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+                IPdecision new_decision = resolve_geo_decision(config, p->ptrs.ip_api, p);
                 decision_final = new_decision;
             }
             return decision_final;
@@ -459,7 +461,7 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
     }
 
     if (decision_final == DECISION_NULL) {
-        auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+        IPdecision new_decision = resolve_geo_decision(config, p->ptrs.ip_api, p);
         decision_final = new_decision;
     }
 
@@ -504,7 +506,7 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
 
     IPdecision original_decision = decision;
 
-    auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+    IPdecision new_decision = resolve_geo_decision(config, p->ptrs.ip_api, p);
 
     if(new_decision == BLOCKED_SRC || new_decision == BLOCKED_DST){
         new_decision = BLOCKED;
@@ -516,13 +518,12 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
 
     if(new_decision == DECISION_NULL){
         new_decision = original_decision;
-        geo_flags = 0;
     }
 
     decision = new_decision;
 
     if(decision != DECISION_NULL){
-        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, geo_flags);
+        auto alert = generate_custom_alert(p->ptrs.ip_api, decision, p);
         GeoAlert rep_alert;
         rep_alert.msg = const_cast<char*>(alert["message"].c_str());
         rep_alert.action = const_cast<char*>(alert["action"].c_str());
