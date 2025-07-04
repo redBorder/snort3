@@ -250,7 +250,7 @@ void FireCustomAlert(GeoAlert alert, Packet* p){
     sig_info.sid = 1;
     sig_info.gid = GID_REPUTATION;
     sig_info.rev = 1;
-    RbCallCustomAlert(alert.msg, alert.action, sig_info, p);
+    RbCallCustomAlert(alert.msg, alert.action, sig_info, p, 3);
 }
 
 static bool decision_per_layer(const ReputationConfig& config, ReputationData& data,
