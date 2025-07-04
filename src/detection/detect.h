@@ -22,6 +22,7 @@
 #define DETECT_H
 
 #include "main/snort_types.h"
+#include "detection/signature.h"
 
 namespace snort
 {
@@ -42,7 +43,7 @@ bool snort_log(snort::Packet*);
 void CallLogFuncs(snort::Packet*, ListHead*, class Event*, const char*);
 void CallLogFuncs(snort::Packet*, const OptTreeNode*, ListHead*);
 void CallAlertFuncs(snort::Packet*, const OptTreeNode*, ListHead*);
-void RbCallCustomAlert(char* msg, snort::Packet* p, char* act);
+void RbCallCustomAlert(char* msg, char* act, SigInfo sig, snort::Packet* p);
 
 void enable_tags();
 void check_tags(snort::Packet*);

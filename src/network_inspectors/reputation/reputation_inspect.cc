@@ -26,6 +26,7 @@
 #include "reputation_inspect.h"
 
 #include "detection/detection_engine.h"
+#include "detection/signature.h"
 #include "log/messages.h"
 #include "main/snort.h"
 #include "main/snort_config.h"
@@ -237,6 +238,19 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     std::string msg = build_alert_message(alert);
 
     return {{"message", std::move(msg)}, {"action", info.action}};
+}
+
+struct GeoAlert {
+    char* msg;
+    char* action;
+};
+
+void FireCustomAlert(GeoAlert alert, Packet* p){
+    SigInfo sig_info;
+    sig_info.sid = 1;
+    sig_info.gid = GID_REPUTATION;
+    sig_info.rev = 1;
+    RbCallCustomAlert(alert.msg, alert.action, sig_info, p);
 }
 
 static bool decision_per_layer(const ReputationConfig& config, ReputationData& data,
@@ -451,7 +465,10 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
         auto [decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
         if(original_decision != DECISION_NULL){
             auto alert = generate_custom_alert(p->ptrs.ip_api, decision, geo_flags);
-            RbCallCustomAlert(const_cast<char*>(alert["message"].c_str()), p, const_cast<char*>(alert["action"].c_str()));
+            GeoAlert rep_alert;
+            rep_alert.msg = const_cast<char*>(alert["message"].c_str());
+            rep_alert.action = const_cast<char*>(alert["action"].c_str());
+            FireCustomAlert(rep_alert, p);
         }
         if(decision == BLOCKED_SRC || decision == BLOCKED_DST){
             decision = BLOCKED;
@@ -465,7 +482,10 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
     } else {
         if(original_decision != DECISION_NULL){
             auto alert = generate_custom_alert(p->ptrs.ip_api, original_decision, 0);
-            RbCallCustomAlert(const_cast<char*>(alert["message"].c_str()), p, const_cast<char*>(alert["action"].c_str()));
+            GeoAlert rep_alert;
+            rep_alert.msg = const_cast<char*>(alert["message"].c_str());
+            rep_alert.action = const_cast<char*>(alert["action"].c_str());
+            FireCustomAlert(rep_alert, p);
         }
     }
 
@@ -578,7 +598,10 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
 
     if(decision != DECISION_NULL){
         auto alert = generate_custom_alert(p->ptrs.ip_api, decision, 0);
-        RbCallCustomAlert(const_cast<char*>(alert["message"].c_str()), p, const_cast<char*>(alert["action"].c_str()));
+        GeoAlert rep_alert;
+        rep_alert.msg = const_cast<char*>(alert["message"].c_str());
+        rep_alert.action = const_cast<char*>(alert["action"].c_str());
+        FireCustomAlert(rep_alert, p);
     }
 
     if (BLOCKED_SRC == decision or BLOCKED_DST == decision)
