@@ -422,7 +422,8 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
         if (config.nested_ip == INNER) {
             decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
             if (decision_final == DECISION_NULL) {
-                auto [decision_final, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+                auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+                decision_final = new_decision;
             }
             return decision_final;
         }
@@ -457,8 +458,10 @@ static IPdecision reputation_decision(const ReputationConfig& config, Reputation
         }
     }
 
-    if (decision_final == DECISION_NULL)
-        auto [decision_final, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+    if (decision_final == DECISION_NULL) {
+        auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+        decision_final = new_decision;
+    }
 
     if (decision_final != BLOCKED_SRC && decision_final != BLOCKED_DST)
         p->ptrs.ip_api = tmp_api;
@@ -500,24 +503,28 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
     }
     IPdecision original_decision = decision;
     
-    if(decision == DECISION_NULL){
-        auto [decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+    if (decision == DECISION_NULL){
+        auto [new_decision, geo_flags] = resolve_geo_decision(config, p->ptrs.ip_api);
+
         if(original_decision != DECISION_NULL){
-            auto alert = generate_custom_alert(p->ptrs.ip_api, decision, geo_flags);
+            auto alert = generate_custom_alert(p->ptrs.ip_api, new_decision, geo_flags);
             GeoAlert rep_alert;
             rep_alert.msg = const_cast<char*>(alert["message"].c_str());
             rep_alert.action = const_cast<char*>(alert["action"].c_str());
             FireCustomAlert(rep_alert, p);
         }
-        if(decision == BLOCKED_SRC || decision == BLOCKED_DST){
-            decision = BLOCKED;
+
+        if(new_decision == BLOCKED_SRC || new_decision == BLOCKED_DST){
+            new_decision = BLOCKED;
         }
-        if(decision == MONITORED_SRC || decision == MONITORED_DST){
-            decision = MONITORED;
+        if(new_decision == MONITORED_SRC || new_decision == MONITORED_DST){
+            new_decision = MONITORED;
         }
-        if(decision == TRUSTED_SRC || decision == TRUSTED_DST){
-            decision = TRUSTED;
+        if(new_decision == TRUSTED_SRC || new_decision == TRUSTED_DST){
+            new_decision = TRUSTED;
         }
+
+        decision = new_decision;
     } else {
         if(original_decision != DECISION_NULL){
             auto alert = generate_custom_alert(p->ptrs.ip_api, original_decision, 0);
