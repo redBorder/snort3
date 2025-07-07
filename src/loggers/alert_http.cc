@@ -107,6 +107,8 @@ static bool ff_action(const Args& a)
     std::string msg = a.msg;
     std::string action;
 
+    // yes, ik this is dirty, but dont want to make the full rule
+    // with the node tree and so, this is dirty but easy
     const std::unordered_map<std::string, std::string> action_map = {
         {"TRUSTED", "pass"},
         {"BLOCKED", "drop"},

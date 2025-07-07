@@ -247,7 +247,7 @@ struct GeoAlert {
 
 void FireCustomAlert(GeoAlert alert, Packet* p){
     SigInfo sig_info;
-    sig_info.sid = 1;
+    sig_info.sid = -1;
     sig_info.gid = GID_REPUTATION;
     sig_info.rev = 1;
     RbCallCustomAlert(alert.msg, alert.action, sig_info, p, 3);
