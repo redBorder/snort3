@@ -222,9 +222,9 @@ std::unordered_map<std::string, std::string> generate_custom_alert(
     GeoInfo src_geo = lookup_geo(src_ip);
     GeoInfo dst_geo = lookup_geo(dst_ip);
 
-    const char* decision_maker = "snort-reputation-ip";
-    if (geo_flags & FLAG_COUNTRY)   decision_maker = "snort-reputation-country";
-    else if (geo_flags & FLAG_CONTINENT) decision_maker = "snort-reputation-continent";
+    const char* decision_maker = "intrusion-reputation-ip";
+    if (geo_flags & FLAG_COUNTRY)   decision_maker = "intrusion-reputation-country";
+    else if (geo_flags & FLAG_CONTINENT) decision_maker = "intrusion-reputation-continent";
 
     RbCustomAlert alert;
     alert.info = info;
