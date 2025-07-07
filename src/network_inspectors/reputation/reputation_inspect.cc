@@ -135,9 +135,9 @@ struct DecisionInfo {
 };
 
 static const std::unordered_map<IPdecision, DecisionInfo> decision_map = {
-    { BLOCKED,    { "BLOCKED",   "Blocked IP",    "drop"  } },
-    { MONITORED,  { "MONITORED", "Monitoring IP", "alert" } },
-    { TRUSTED,    { "TRUSTED",   "Trusted IP",    "pass"  } }
+    { BLOCKED,    { "BLOCKED",   "Blocked IP",    "reputation-drop"  } },
+    { MONITORED,  { "MONITORED", "Monitoring IP", "reputation-alert" } },
+    { TRUSTED,    { "TRUSTED",   "Trusted IP",    "reputation-pass"  } }
 };
 
 struct GeoInfo {

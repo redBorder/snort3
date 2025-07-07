@@ -76,7 +76,6 @@ void CallLogFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 {
     const char* act = (head and head->ruleListNode) ? head->ruleListNode->name : "";
     Event event(p->pkth->ts.tv_sec, p->pkth->ts.tv_usec, otn->sigInfo, otn->buffer_setters, act);
-    std::cout << act << std::endl;
 
     DetectionEngine::set_check_tags(p, false);
     pc.log_pkts++;
@@ -112,7 +111,6 @@ void CallAlertFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
 {
 
     const char* act = (head and head->ruleListNode) ? head->ruleListNode->name : "";
-    std::cout << act << std::endl;
     Event event(p->pkth->ts.tv_sec, p->pkth->ts.tv_usec, otn->sigInfo, otn->buffer_setters, act);
 
     pc.total_alert_pkts++;

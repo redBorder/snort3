@@ -101,10 +101,30 @@ static void print_label(const Args &a, const char *label)
     BinaryWriter_Print(json_log, " \"%s\" : ", label);
 }
 
-static bool ff_action(const Args &a)
+static bool ff_action(const Args& a)
 {
     print_label(a, "action");
-    BinaryWriter_Quote(json_log, a.pkt->active->get_real_action_string());
+    std::string msg = a.msg;
+    std::string action;
+
+    const std::unordered_map<std::string, std::string> action_map = {
+        {"TRUSTED", "pass"},
+        {"BLOCKED", "drop"},
+        {"MONITORED", "alert"}
+    };
+
+    for (const auto& [keyword, action_value] : action_map) {
+        if (msg.find(keyword) != std::string::npos) {
+            action = action_value;
+            break; 
+        }
+    }
+
+    if(!action.empty())
+        BinaryWriter_Quote(json_log, action.c_str());
+    else 
+        BinaryWriter_Quote(json_log, a.pkt->active->get_real_action_string());
+
     return true;
 }
 
