@@ -101,7 +101,8 @@ cd ./build
 %{__mv} $RPM_BUILD_ROOT%{_docdir}/snort $RPM_BUILD_ROOT%{_docdir}/snort-%{version}
 %{__mkdir_p} $RPM_BUILD_ROOT%{_var}/log/snort
 install -D -m 0644 ../systemd/snort3@.service %{buildroot}/usr/lib/systemd/system/snort3@.service
-
+mkdir -p %{buildroot}/etc/snort/ml_models
+install -D -m 0644 ../redborder/ml_models/snort.model %{buildroot}/etc/snort/ml_models/snort.model
 
 %clean
 [ -n "$RPM_BUILD_ROOT" -a "$RPM_BUILD_ROOT" != / ] && rm -rf $RPM_BUILD_ROOT
@@ -140,6 +141,7 @@ fi
 %attr(0644,root,root) %{_includedir}/snort/lua/*.lua
 %attr(0755,snort,snort) %dir %{_var}/log/snort
 %attr(0644,snort,snort) /usr/lib/systemd/system/snort3@.service
+%attr(0644,snort,snort) /etc/snort/ml_models/snort.model
 
 %doc %{_docdir}/snort-%{version}
 
