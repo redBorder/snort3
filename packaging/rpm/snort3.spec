@@ -39,6 +39,9 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Packager: Official Snort.org %{for_distro}
 Vendor: %{vendor}
+Requires: libml = 1.1.0
+BuildRequires: libml = 1.1.0
+BuildRequires: libml-devel = 1.1.0
 Requires: libcurl libgeolite, libcpr, libmaxminddb, libdaq, libdaq-modules, libdnet, hwloc, luajit, openssl, libpcap, pcre, hyperscan, flatbuffers, libuuid, gperftools-libs, zlib, librdkafka, xz
 BuildRequires: libcurl-devel, libcpr-devel, libgeolite-devel, libmaxminddb-devel, xz-devel,flex, libdaq-devel, cmake, gcc, gcc-c++, libdnet-devel, librdkafka-devel, hwloc-devel, luajit-devel, openssl-devel, libpcap-devel, pcre-devel, hyperscan-devel, flatbuffers-devel, glibc-headers, libuuid-devel, gperftools, gperftools-devel, zlib-devel, asciidoc, dblatex, pfring
 
@@ -77,7 +80,7 @@ export AM_CFLAGS="-g -O2"
 export LDFLAGS="-Wl,--copy-dt-needed-entries"
 #updatedb
 #locate cpr
-./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell --with-cpr-includes=/usr/include/cpr/ --with-pcap-libraries=/usr/lib64/ --with-pcap-includes=/usr/include/pcap/
+./configure_cmake.sh --prefix=%{_prefix} --disable-static-daq --enable-hardened-build --enable-pie --enable-tcmalloc --enable-shell --with-cpr-includes=/usr/include/cpr/ --with-pcap-libraries=/usr/lib64/ --with-pcap-includes=/usr/include/pcap/ --with-libml-includes=/usr/include/ --with-libml-libraries=/usr/lib64/
 # --disable-gdb
 cd ./build
 %{make_build} VERBOSE=1
@@ -98,7 +101,6 @@ cd ./build
 %{__mv} $RPM_BUILD_ROOT%{_docdir}/snort $RPM_BUILD_ROOT%{_docdir}/snort-%{version}
 %{__mkdir_p} $RPM_BUILD_ROOT%{_var}/log/snort
 install -D -m 0644 ../systemd/snort3@.service %{buildroot}/usr/lib/systemd/system/snort3@.service
-
 
 %clean
 [ -n "$RPM_BUILD_ROOT" -a "$RPM_BUILD_ROOT" != / ] && rm -rf $RPM_BUILD_ROOT
