@@ -64,8 +64,6 @@ private:
 
 void HttpBodyHandler::handle(DataEvent& de, Flow*)
 {
-        std::cout << "Body handle " << std::endl;
-
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
@@ -134,7 +132,6 @@ private:
 
 void HttpUriHandler::handle(DataEvent& de, Flow*)
 {
-        std::cout << "URI handle " << std::endl;
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
@@ -266,7 +263,7 @@ void FtpResponseHandler::handle(DataEvent& de, Flow*)
         return;
 
     const size_t len = std::min(
-        static_cast<size_t>(config.ftp_request_depth),
+        static_cast<size_t>(config.ftp_response_depth),
         static_cast<size_t>(data_len));
 
     kaizen_stats.ftp_cmd_bytes += len;
@@ -304,6 +301,7 @@ void Kaizen::show(const SnortConfig*) const
     ConfigLogger::log_limit("uri_depth", config.uri_depth, -1);
     ConfigLogger::log_limit("client_body_depth", config.client_body_depth, -1);
     ConfigLogger::log_limit("ftp_request_depth", config.ftp_request_depth, -1);
+    ConfigLogger::log_limit("ftp_response_depth", config.ftp_response_depth, -1);
     ConfigLogger::log_value("ftp_cmd_threshold", config.ftp_cmd_threshold);
     ConfigLogger::log_value("http_param_threshold", config.http_param_threshold);
 }
@@ -319,6 +317,8 @@ bool Kaizen::configure(SnortConfig* sc)
 
     if (config.ftp_request_depth != 0)
         DataBus::subscribe(ftp_pub_key, FtpEventIds::FTP_REQUEST, new FtpRequestHandler(*this));
+    
+    if (config.ftp_response_depth != 0)
         DataBus::subscribe(ftp_pub_key, FtpEventIds::FTP_RESPONSE, new FtpResponseHandler(*this));
 
     if(!InspectorManager::get_inspector(KZ_ENGINE_NAME, true, sc))

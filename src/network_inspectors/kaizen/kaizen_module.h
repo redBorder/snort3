@@ -57,6 +57,7 @@ struct KaizenConfig
     int32_t uri_depth;
     int32_t client_body_depth;
     int32_t ftp_request_depth;
+    int32_t ftp_response_depth;
 };
 
 class KaizenModule : public snort::Module

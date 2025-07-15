@@ -46,7 +46,10 @@ static const Parameter kaizen_params[] =
       "alert threshold for ftp_cmd_model" },
 
     { "ftp_request_depth", Parameter::PT_INT, "-1:max31", "0",
-      "number of input FTP command bytes to scan (-1 unlimited)" },
+      "number of input FTP request command bytes to scan (-1 unlimited)" },
+
+    { "ftp_response_depth", Parameter::PT_INT, "-1:max31", "0",
+      "number of input FTP response command bytes to scan (-1 unlimited)" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
@@ -92,6 +95,8 @@ bool KaizenModule::set(const char*, Value& v, SnortConfig*)
         "Field::length maximum value should not exceed client_body_depth type range");
     static_assert(std::is_same<decltype((Field().length())), decltype(conf.ftp_request_depth)>::value,
         "Field::length maximum value should not exceed ftp_request_depth type range");
+    static_assert(std::is_same<decltype((Field().length())), decltype(conf.ftp_response_depth)>::value,
+        "Field::length maximum value should not exceed ftp_response_depth type range");
 
     if (v.is("uri_depth"))
         conf.uri_depth = v.get_int32();
@@ -101,13 +106,15 @@ bool KaizenModule::set(const char*, Value& v, SnortConfig*)
         conf.http_param_threshold = v.get_real();
     else if (v.is("ftp_request_depth"))
         conf.ftp_request_depth = v.get_int32();
+    else if (v.is("ftp_response_depth"))
+        conf.ftp_response_depth = v.get_int32();
 
     return true;
 }
 
 bool KaizenModule::end(const char*, int, snort::SnortConfig*)
 {
-    if (!conf.uri_depth && !conf.client_body_depth && !conf.ftp_request_depth)
+    if (!conf.uri_depth && !conf.client_body_depth && !conf.ftp_request_depth && !conf.ftp_response_depth)
         ParseWarning(WARN_CONF,
             "Neither of snort_ml source depths (HTTP URI, HTTP body, FTP cmd) is set, snort_ml won't process traffic.");
 
