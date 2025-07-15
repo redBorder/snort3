@@ -104,6 +104,7 @@ void HttpBodyHandler::handle(DataEvent& de, Flow*)
                 kaizen_stats.client_body_alerts++;
                 debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
                 DetectionEngine::queue_event(KZ_GID, KZ_SID);
+                break;
             }
         }
     }
@@ -165,6 +166,7 @@ void HttpUriHandler::handle(DataEvent& de, Flow*)
             kaizen_stats.uri_alerts++;
             debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu <ALERT>\n", i);
             DetectionEngine::queue_event(KZ_GID, KZ_SID);
+            break;
         }
     }
 }
