@@ -68,8 +68,8 @@ public:
     static const std::vector<BinaryClassifier*>& get_classifiers();
 
 private:
-    std::vector<string> read_models();
-    bool validate_model(const string& model);
+    std::vector<std::string> read_models();
+    bool validate_model(const std::string& model);
 
     KaizenEngineConfig config;
     std::vector<std::string> http_param_models;

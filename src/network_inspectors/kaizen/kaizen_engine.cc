@@ -42,7 +42,14 @@
 using namespace snort;
 using namespace std;
 
-static THREAD_LOCAL vector<BinaryClassifier*> classifiers;
+static thread_local vector<BinaryClassifier*>* classifiers_ptr = nullptr;
+
+static vector<BinaryClassifier*>& get_classifiers_storage()
+{
+    if (!classifiers_ptr)
+        classifiers_ptr = new vector<BinaryClassifier*>();
+    return *classifiers_ptr;
+}
 
 static bool build_classifier(const string& model, BinaryClassifier*& dst)
 {
@@ -95,6 +102,8 @@ public:
 
     bool tinit() override
     {
+        vector<BinaryClassifier*>& classifiers = get_classifiers_storage();
+
         for (auto* c : classifiers)
             delete c;
         classifiers.clear();
@@ -175,6 +184,8 @@ bool KaizenEngine::validate_model(const string& model)
 
 void KaizenEngine::tinit()
 {
+    vector<BinaryClassifier*>& classifiers = get_classifiers_storage();
+
     for (auto* c : classifiers)
         delete c;
     classifiers.clear();
@@ -189,19 +200,21 @@ void KaizenEngine::tinit()
 
 void KaizenEngine::tterm()
 {
+    vector<BinaryClassifier*>& classifiers = get_classifiers_storage();
+
     for (auto* c : classifiers)
         delete c;
     classifiers.clear();
 }
 
 void KaizenEngine::install_reload_handler(SnortConfig* sc)
-{ sc->register_reload_handler(new KaizenReloadTuner(http_param_models)); }
-
-std::vector<BinaryClassifier*> KaizenEngine::classifiers;
-
-const std::vector<BinaryClassifier*>& KaizenEngine::get_classifiers()
 {
-    return classifiers;
+    sc->register_reload_handler(new KaizenReloadTuner(http_param_models));
+}
+
+const vector<BinaryClassifier*>& KaizenEngine::get_classifiers()
+{
+    return get_classifiers_storage();
 }
 
 //--------------------------------------------------------------------------
