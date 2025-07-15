@@ -65,7 +65,7 @@ void HttpBodyHandler::handle(DataEvent& de, Flow*)
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
-    BinaryClassifier* classifier = KaizenEngine::get_classifier();
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers();
     KaizenConfig config = inspector.get_config();
     HttpRequestBodyEvent* he = (HttpRequestBodyEvent*)&de;
 
@@ -80,27 +80,37 @@ void HttpBodyHandler::handle(DataEvent& de, Flow*)
 
     const size_t len = std::min((size_t)config.client_body_depth, (size_t)body_len);
 
-    assert(classifier);
-
-    float output = 0.0;
+    if (classifiers.empty())
+        return;
 
     kaizen_stats.libml_calls++;
 
-    if (!classifier->run(body, len, output))
-        return;
+    for (size_t i = 0; i < classifiers.size(); ++i)
+    {
+        BinaryClassifier* classifier = classifiers[i];
+        assert(classifier);
+
+        if (!classifier)
+            continue;
+
+        float output = 0.0;
+        if (classifier->run(body, len, output))
+        {
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "input (body): %.*s\n", (int)len, body);
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "output: %f\n", static_cast<double>(output));
+
+            if ((double)output > config.http_param_threshold)
+            {
+                kaizen_stats.client_body_alerts++;
+                debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
+                DetectionEngine::queue_event(KZ_GID, KZ_SID);
+            }
+        }
+    }
 
     kaizen_stats.client_body_bytes += len;
-
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "input (body): %.*s\n", (int)len, body);
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "output: %f\n", static_cast<double>(output));
-
-    if ((double)output > config.http_param_threshold)
-    {
-        kaizen_stats.client_body_alerts++;
-        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
-        DetectionEngine::queue_event(KZ_GID, KZ_SID);
-    }
 }
+
 
 //--------------------------------------------------------------------------
 // HTTP uri event handler
@@ -123,37 +133,39 @@ void HttpUriHandler::handle(DataEvent& de, Flow*)
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
-    BinaryClassifier* classifier = KaizenEngine::get_classifier();
-    KaizenConfig config = inspector.get_config();
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers();
+    const KaizenConfig config = inspector.get_config();
     HttpEvent* he = (HttpEvent*)&de;
 
     int32_t query_len = 0;
     const char* query = (const char*)he->get_uri_query(query_len);
 
-    if (!query || query_len <= 0)
+    if (!query || query_len <= 0 || classifiers.empty())
         return;
 
     const size_t len = std::min((size_t)config.uri_depth, (size_t)query_len);
-
-    assert(classifier);
-
-    float output = 0.0;
-
-    kaizen_stats.libml_calls++;
-
-    if (!classifier->run(query, (size_t)len, output))
-        return;
-
     kaizen_stats.uri_bytes += len;
 
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "input (query): %.*s\n", (int)len, query);
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "output: %f\n", static_cast<double>(output));
-
-    if ((double)output > config.http_param_threshold)
+    for (size_t i = 0; i < classifiers.size(); ++i)
     {
-        kaizen_stats.uri_alerts++;
-        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
-        DetectionEngine::queue_event(KZ_GID, KZ_SID);
+        BinaryClassifier* classifier = classifiers[i];
+        assert(classifier);
+
+        float output = 0.0;
+        kaizen_stats.libml_calls++;
+
+        if (!classifier->run(query, len, output))
+            continue;
+
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu input (query): %.*s\n", i, (int)len, query);
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu output: %f\n", i, static_cast<double>(output));
+
+        if ((double)output > config.http_param_threshold)
+        {
+            kaizen_stats.uri_alerts++;
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu <ALERT>\n", i);
+            DetectionEngine::queue_event(KZ_GID, KZ_SID);
+        }
     }
 }
 
