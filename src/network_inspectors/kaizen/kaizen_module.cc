@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //--------------------------------------------------------------------------
 // kaizen_module.cc author Brandon Stultz <brastult@cisco.com>
+// extended by Miguel Álvarez <malvarez@redborder.com> MultiModel & MultiProtocol
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -40,6 +41,9 @@ static const Parameter kaizen_params[] =
 
     { "http_param_threshold", Parameter::PT_REAL, "0:1", "0.95",
       "alert threshold for http_param_model" },
+    
+    { "ftp_cmd_threshold", Parameter::PT_REAL, "0:1", "0.95",
+      "alert threshold for ftp_cmd_model" },
 
     { "ftp_request_depth", Parameter::PT_INT, "-1:max31", "0",
       "number of input FTP command bytes to scan (-1 unlimited)" },

@@ -386,9 +386,11 @@ static const InspectApi kaizen_engine_api =
 };
 
 #ifdef BUILDING_SO
-SO_PUBLIC const BaseApi* snort_get_api()
-{
-    return &kaizen_engine_api.api_base;
-}
+SO_PUBLIC const BaseApi* snort_plugins[] =
+#else
+const BaseApi* nin_kaizen_engine[] =
 #endif
-
+{
+    &kaizen_engine_api.base,
+    nullptr
+};
