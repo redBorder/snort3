@@ -44,7 +44,6 @@ class KaizenEngineModule : public snort::Module
 {
 public:
     KaizenEngineModule();
-
     bool set(const char*, snort::Value&, snort::SnortConfig*) override;
 
     Usage get_usage() const override

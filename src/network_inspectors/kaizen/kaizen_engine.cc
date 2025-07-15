@@ -79,6 +79,7 @@ static const Parameter kaizen_engine_params[] =
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
+
 KaizenEngineModule::KaizenEngineModule() : Module(KZ_ENGINE_NAME, KZ_ENGINE_HELP, kaizen_engine_params) {}
 
 bool KaizenEngineModule::set(const char* fqn, Value& v, SnortConfig*)
@@ -160,8 +161,6 @@ KaizenEngine::KaizenEngine(const KaizenEngineConfig& c) : config(c)
 
     kaizen_validate(http_param_models, std::move(buffers.http_models), config.http_param_model_paths);
     kaizen_validate(ftp_cmd_models, std::move(buffers.ftp_models), config.ftp_cmd_model_paths);
-
-    tinit();
 }
 
 void KaizenEngine::show(const SnortConfig*) const
@@ -249,10 +248,8 @@ void KaizenEngine::tterm()
 
 void KaizenEngine::install_reload_handler(SnortConfig* sc)
 {
-    sc->register_reload_handler(
-        new KaizenReloadTuner(http_param_models, KaizenEngine::ClassifierType::HTTP,  "HTTP"));
-    sc->register_reload_handler(
-        new KaizenReloadTuner(ftp_cmd_models,  KaizenEngine::ClassifierType::FTP,   "FTP"));
+    sc->register_reload_handler(new KaizenReloadTuner(http_param_models, KaizenEngine::ClassifierType::HTTP, "HTTP"));
+    sc->register_reload_handler(new KaizenReloadTuner(ftp_cmd_models, KaizenEngine::ClassifierType::FTP, "FTP"));
 }
 
 const std::vector<BinaryClassifier*>& KaizenEngine::get_classifiers(KaizenEngine::ClassifierType type)
@@ -260,26 +257,22 @@ const std::vector<BinaryClassifier*>& KaizenEngine::get_classifiers(KaizenEngine
     return get_classifiers_storage(type);
 }
 
-static bool kaizen_engine_pinit(SnortConfig* sc, Inspector* isp)
-{
-    auto* engine = static_cast<KaizenEngine*>(isp);
-    engine->install_reload_handler(sc);
-    engine->tinit();
-    return true;
-}
+//--------------------------------------------------------------------------
+// api stuff
+//--------------------------------------------------------------------------
 
-//---------------------------------------------------------------------------
-// API stuff
-//---------------------------------------------------------------------------
 static Module* mod_ctor()
 { return new KaizenEngineModule; }
+
 static void mod_dtor(Module* m)
 { delete m; }
+
 static Inspector* kaizen_engine_ctor(Module* m)
 {
-    auto* mod = static_cast<KaizenEngineModule*>(m);
+    KaizenEngineModule* mod = (KaizenEngineModule*)m;
     return new KaizenEngine(mod->get_config());
 }
+
 static void kaizen_engine_dtor(Inspector* p)
 {
     assert(p);
@@ -305,17 +298,17 @@ static const InspectApi kaizen_engine_api =
         mod_dtor
     },
     IT_PASSIVE,
-    PROTO_BIT__NONE,  // proto_bits
-    nullptr,          // buffers
-    nullptr,          // service
-    (InspectFunc)kaizen_engine_pinit,  // pinit
-    nullptr,          // pterm
-    nullptr,          // tinit
-    nullptr,          // tterm
+    PROTO_BIT__NONE,  // proto_bits;
+    nullptr,  // buffers
+    nullptr,  // service
+    nullptr,  // pinit
+    nullptr,  // pterm
+    nullptr,  // tinit
+    nullptr,  // tterm
     kaizen_engine_ctor,
     kaizen_engine_dtor,
-    nullptr,          // ssn
-    nullptr           // reset
+    nullptr,  // ssn
+    nullptr   // reset
 };
 
 #ifdef BUILDING_SO
