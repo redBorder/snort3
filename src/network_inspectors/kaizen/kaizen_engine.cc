@@ -368,17 +368,17 @@ static const InspectApi kaizen_engine_api =
         mod_dtor
     },
     IT_PASSIVE,
-    PROTO_BIT__NONE,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
+    PROTO_BIT__NONE,  // proto_bits;
+    nullptr,  // buffers
+    nullptr,  // service
+    nullptr,  // pinit
+    nullptr,  // pterm
+    nullptr,  // tinit
+    nullptr,  // tterm
     kaizen_engine_ctor,
     kaizen_engine_dtor,
-    nullptr,
-    nullptr
+    nullptr,  // ssn
+    nullptr   // reset
 };
 
 #ifdef BUILDING_SO
