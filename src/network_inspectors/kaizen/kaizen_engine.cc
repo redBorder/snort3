@@ -42,8 +42,6 @@
 using namespace snort;
 using namespace std;
 
-// --- Separate thread-local storage for HTTP and FTP classifiers ---
-
 static thread_local vector<BinaryClassifier*>* http_classifiers_ptr = nullptr;
 static thread_local vector<BinaryClassifier*>* ftp_classifiers_ptr = nullptr;
 
@@ -267,7 +265,6 @@ bool KaizenEngine::validate_model(const string& model)
 
 void KaizenEngine::tinit()
 {
-    // Initialize HTTP classifiers
     {
         vector<BinaryClassifier*>& http_classifiers = get_http_classifiers_storage();
         for (auto* c : http_classifiers)
@@ -282,7 +279,6 @@ void KaizenEngine::tinit()
         }
     }
 
-    // Initialize FTP classifiers
     {
         vector<BinaryClassifier*>& ftp_classifiers = get_ftp_classifiers_storage();
         for (auto* c : ftp_classifiers)
