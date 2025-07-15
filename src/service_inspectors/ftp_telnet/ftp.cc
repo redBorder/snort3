@@ -68,7 +68,7 @@ static inline int InspectClientPacket(Packet* p)
 
 static void publish_ftp_request(const FTP_SESSION& session, Flow* flow)
 {
-    FtpRequestEvent event(session);
+    FtpResponseEvent event(session);
     DataBus::publish(pub_id, FtpEventIds::FTP_REQUEST, event, flow);
 }
 
