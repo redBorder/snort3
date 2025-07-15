@@ -69,7 +69,7 @@ static const Parameter model_params[] =
 
 static const Parameter kaizen_engine_params[] =
 {
-    { "models", Parameter::PT_LIST, model_params, nullptr, "List of ML models" },
+    { "http_param_models", Parameter::PT_LIST, model_params, nullptr, "List of ML models" },
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
@@ -78,7 +78,7 @@ KaizenEngineModule::KaizenEngineModule() : Module(KZ_ENGINE_NAME, KZ_ENGINE_HELP
 
 bool KaizenEngineModule::set(const char* fqn, Value& v, SnortConfig*)
 {
-    if (strcmp(fqn, "snort_ml_engine.models.path") == 0)
+    if (strcmp(fqn, "snort_ml_engine.http_param_models.path") == 0)
     {
         conf.http_param_model_paths.push_back(v.get_string());
         return true;
