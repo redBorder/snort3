@@ -61,6 +61,13 @@ private:
 class KaizenEngine : public snort::Inspector
 {
 public:
+
+    enum class ClassifierType
+    {
+        HTTP,
+        FTP
+    };
+
     KaizenEngine(const KaizenEngineConfig&);
 
     void show(const snort::SnortConfig*) const override;
@@ -72,8 +79,7 @@ public:
     void install_reload_handler(snort::SnortConfig*) override;
 
     static std::vector<BinaryClassifier*> classifiers;
-    static const std::vector<BinaryClassifier*>& get_http_classifiers();
-    static const std::vector<BinaryClassifier*>& get_ftp_classifiers();
+    static const std::vector<BinaryClassifier*>& get_classifiers(KaizenEngine::ClassifierType type);
 
 private:
     KaizenModelBuffers read_models();

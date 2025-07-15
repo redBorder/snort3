@@ -66,7 +66,7 @@ void HttpBodyHandler::handle(DataEvent& de, Flow*)
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
-    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_http_classifiers();
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers(KaizenEngine::ClassifierType::HTTP);
     KaizenConfig config = inspector.get_config();
     HttpRequestBodyEvent* he = (HttpRequestBodyEvent*)&de;
 
@@ -134,7 +134,7 @@ void HttpUriHandler::handle(DataEvent& de, Flow*)
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
-    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_http_classifiers();
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers(KaizenEngine::ClassifierType::HTTP);
     const KaizenConfig config = inspector.get_config();
     HttpEvent* he = (HttpEvent*)&de;
 
@@ -189,9 +189,10 @@ private:
 
 void FtpRequestHandler::handle(DataEvent& de, Flow*)
 {
+    // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
-    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_ftp_classifiers();
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers(KaizenEngine::ClassifierType::FTP);
     const KaizenConfig config = inspector.get_config();
 
     FtpRequestEvent* fe = (FtpRequestEvent*)&de;

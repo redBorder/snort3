@@ -82,9 +82,9 @@ static const TraceOption kaizen_trace_options[] =
 // module
 //--------------------------------------------------------------------------
 
-inline KaizenModule::KaizenModule() : Module(KZ_NAME, KZ_HELP, kaizen_params) {}
+KaizenModule::KaizenModule() : Module(KZ_NAME, KZ_HELP, kaizen_params) {}
 
-inline bool KaizenModule::set(const char*, Value& v, SnortConfig*)
+bool KaizenModule::set(const char*, Value& v, SnortConfig*)
 {
     static_assert(std::is_same<decltype((Field().length())), decltype(conf.uri_depth)>::value,
         "Field::length maximum value should not exceed uri_depth type range");
@@ -105,7 +105,7 @@ inline bool KaizenModule::set(const char*, Value& v, SnortConfig*)
     return true;
 }
 
-inline bool KaizenModule::end(const char*, int, snort::SnortConfig*)
+bool KaizenModule::end(const char*, int, snort::SnortConfig*)
 {
     if (!conf.uri_depth && !conf.client_body_depth && !conf.ftp_request_depth)
         ParseWarning(WARN_CONF,
@@ -114,22 +114,32 @@ inline bool KaizenModule::end(const char*, int, snort::SnortConfig*)
     return true;
 }
 
-inline const RuleMap* KaizenModule::get_rules() const
-{ return kaizen_rules; }
+const RuleMap* KaizenModule::get_rules() const
+{ 
+    return kaizen_rules; 
+}
 
-inline const PegInfo* KaizenModule::get_pegs() const
-{ return peg_names; }
+const PegInfo* KaizenModule::get_pegs() const
+{ 
+    return peg_names; 
+}
 
-inline PegCount* KaizenModule::get_counts() const
-{ return (PegCount*)&kaizen_stats; }
+PegCount* KaizenModule::get_counts() const
+{ 
+    return (PegCount*)&kaizen_stats; 
+}
 
-inline ProfileStats* KaizenModule::get_profile() const
-{ return &kaizen_prof; }
+ProfileStats* KaizenModule::get_profile() const
+{ 
+    return &kaizen_prof; 
+}
 
-inline void KaizenModule::set_trace(const Trace* trace) const
-{ kaizen_trace = trace; }
+void KaizenModule::set_trace(const Trace* trace) const
+{ 
+    kaizen_trace = trace; 
+}
 
-inline const TraceOption* KaizenModule::get_trace_options() const
+const TraceOption* KaizenModule::get_trace_options() const
 {
 #ifndef DEBUG_MSGS
     return nullptr;
