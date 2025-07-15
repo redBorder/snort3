@@ -46,7 +46,8 @@ static const Parameter kaizen_params[] =
 
 static const RuleMap kaizen_rules[] =
 {
-    { KZ_SID, "potential threat found in HTTP parameters via Neural Network Based Exploit Detection" },
+    { KZ_HTTP_SID, "potential threat found in HTTP parameters via Neural Network Based Exploit Detection" },
+    { KZ_FTP_SID, "potential threat found in FTP cmd via Neural Network Based Exploit Detection" },
     { 0, nullptr }
 };
 

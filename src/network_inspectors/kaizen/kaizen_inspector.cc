@@ -15,250 +15,124 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //--------------------------------------------------------------------------
-// kaizen_inspector.cc author Brandon Stultz <brastult@cisco.com>
+// kaizen_module.cc author Brandon Stultz <brastult@cisco.com>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include "kaizen_inspector.h"
+#include "kaizen_module.h"
 
-#include <cassert>
-
-#ifdef HAVE_LIBML
-#include <libml.h>
-#endif
-
-#include "detection/detection_engine.h"
 #include "log/messages.h"
-#include "managers/inspector_manager.h"
-#include "pub_sub/http_events.h"
-#include "pub_sub/http_request_body_event.h"
-#include "utils/util.h"
-
-#include "kaizen_engine.h"
+#include "service_inspectors/http_inspect/http_field.h"
 
 using namespace snort;
-using namespace std;
 
-THREAD_LOCAL KaizenStats kaizen_stats;
-THREAD_LOCAL ProfileStats kaizen_prof;
+THREAD_LOCAL const Trace* kaizen_trace = nullptr;
 
-//--------------------------------------------------------------------------
-// HTTP body event handler
-//--------------------------------------------------------------------------
-
-class HttpBodyHandler : public DataHandler
+static const Parameter kaizen_params[] =
 {
-public:
-    HttpBodyHandler(Kaizen& kz)
-        : DataHandler(KZ_NAME), inspector(kz) {}
+    { "uri_depth", Parameter::PT_INT, "-1:max31", "-1",
+      "number of input HTTP URI bytes to scan (-1 unlimited)" },
 
-    void handle(DataEvent& de, Flow*) override;
+    { "client_body_depth", Parameter::PT_INT, "-1:max31", "0",
+      "number of input HTTP client body bytes to scan (-1 unlimited)" },
 
-private:
-    Kaizen& inspector;
+    { "http_param_threshold", Parameter::PT_REAL, "0:1", "0.95",
+      "alert threshold for http_param_model" },
+
+    { "ftp_request_depth", Parameter::PT_INT, "-1:max31", "0",
+      "number of input FTP command bytes to scan (-1 unlimited)" },
+
+    { "ftp_cmd_threshold", Parameter::PT_REAL, "0:1", "0.95",
+      "alert threshold for ftp_cmd_model" },
+
+    { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
-void HttpBodyHandler::handle(DataEvent& de, Flow*)
+static const RuleMap kaizen_rules[] =
 {
-    // cppcheck-suppress unreadVariable
-    Profile profile(kaizen_prof);
-
-    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers();
-    KaizenConfig config = inspector.get_config();
-    HttpRequestBodyEvent* he = (HttpRequestBodyEvent*)&de;
-
-    if (he->is_mime())
-        return;
-
-    int32_t body_len = 0;
-    const char* body = (const char*)he->get_client_body(body_len);
-
-    if (!body || body_len <= 0)
-        return;
-
-    const size_t len = std::min((size_t)config.client_body_depth, (size_t)body_len);
-
-    if (classifiers.empty())
-        return;
-
-    kaizen_stats.libml_calls++;
-
-    for (size_t i = 0; i < classifiers.size(); ++i)
-    {
-        BinaryClassifier* classifier = classifiers[i];
-        assert(classifier);
-
-        if (!classifier)
-            continue;
-
-        float output = 0.0;
-        if (classifier->run(body, len, output))
-        {
-            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "input (body): %.*s\n", (int)len, body);
-            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "output: %f\n", static_cast<double>(output));
-
-            if ((double)output > config.http_param_threshold)
-            {
-                kaizen_stats.client_body_alerts++;
-                debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
-                DetectionEngine::queue_event(KZ_GID, KZ_SID);
-                break;
-            }
-        }
-    }
-
-    kaizen_stats.client_body_bytes += len;
-}
-
-
-//--------------------------------------------------------------------------
-// HTTP uri event handler
-//--------------------------------------------------------------------------
-
-class HttpUriHandler : public DataHandler
-{
-public:
-    HttpUriHandler(Kaizen& kz)
-        : DataHandler(KZ_NAME), inspector(kz) {}
-
-    void handle(DataEvent&, Flow*) override;
-
-private:
-    Kaizen& inspector;
+    { KZ_HTTP_SID, "potential threat found in HTTP parameters via Neural Network Based Exploit Detection" },
+    { KZ_FTP_SID, "potential threat found in FTP cmd via Neural Network Based Exploit Detection" },
+    { 0, nullptr }
 };
 
-void HttpUriHandler::handle(DataEvent& de, Flow*)
+static const PegInfo peg_names[] =
 {
-    // cppcheck-suppress unreadVariable
-    Profile profile(kaizen_prof);
+    { CountType::SUM, "uri_alerts", "total number of alerts triggered on HTTP URI" },
+    { CountType::SUM, "client_body_alerts", "total number of alerts triggered on HTTP client body" },
+    { CountType::SUM, "uri_bytes", "total number of HTTP URI bytes processed" },
+    { CountType::SUM, "client_body_bytes", "total number of HTTP client body bytes processed" },
+    { CountType::SUM, "ftp_cmd_alerts", "total number of alerts triggered on FTP command" },
+    { CountType::SUM, "ftp_cmd_bytes", "total number of FTP command bytes processed" },
+    { CountType::SUM, "libml_calls", "total libml calls" },
+    { CountType::END, nullptr, nullptr }
+};
 
-    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers();
-    const KaizenConfig config = inspector.get_config();
-    HttpEvent* he = (HttpEvent*)&de;
-
-    int32_t query_len = 0;
-    const char* query = (const char*)he->get_uri_query(query_len);
-
-    if (!query || query_len <= 0 || classifiers.empty())
-        return;
-
-    const size_t len = std::min((size_t)config.uri_depth, (size_t)query_len);
-    kaizen_stats.uri_bytes += len;
-
-    for (size_t i = 0; i < classifiers.size(); ++i)
-    {
-        BinaryClassifier* classifier = classifiers[i];
-        assert(classifier);
-
-        float output = 0.0;
-        kaizen_stats.libml_calls++;
-
-        if (!classifier->run(query, len, output))
-            continue;
-
-        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu input (query): %.*s\n", i, (int)len, query);
-        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu output: %f\n", i, static_cast<double>(output));
-
-        if ((double)output > config.http_param_threshold)
-        {
-            kaizen_stats.uri_alerts++;
-            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu <ALERT>\n", i);
-            DetectionEngine::queue_event(KZ_GID, KZ_SID);
-            break;
-        }
-    }
-}
+#ifdef DEBUG_MSGS
+static const TraceOption kaizen_trace_options[] =
+{
+    { "classifier", TRACE_CLASSIFIER, "enable Snort ML classifier trace logging" },
+    { nullptr, 0, nullptr }
+};
+#endif
 
 //--------------------------------------------------------------------------
-// inspector
+// module
 //--------------------------------------------------------------------------
 
-void Kaizen::show(const SnortConfig*) const
+KaizenModule::KaizenModule() : Module(KZ_NAME, KZ_HELP, kaizen_params) {}
+
+bool KaizenModule::set(const char*, Value& v, SnortConfig*)
 {
-    ConfigLogger::log_limit("uri_depth", config.uri_depth, -1);
-    ConfigLogger::log_limit("client_body_depth", config.client_body_depth, -1);
-    ConfigLogger::log_value("http_param_threshold", config.http_param_threshold);
-}
+    static_assert(std::is_same<decltype((Field().length())), decltype(conf.uri_depth)>::value,
+        "Field::length maximum value should not exceed uri_depth type range");
+    static_assert(std::is_same<decltype((Field().length())), decltype(conf.client_body_depth)>::value,
+        "Field::length maximum value should not exceed client_body_depth type range");
 
-bool Kaizen::configure(SnortConfig* sc)
-{
-    if (config.uri_depth != 0)
-        DataBus::subscribe(http_pub_key, HttpEventIds::REQUEST_HEADER, new HttpUriHandler(*this));
-
-    if (config.client_body_depth != 0)
-        DataBus::subscribe(http_pub_key, HttpEventIds::REQUEST_BODY, new HttpBodyHandler(*this));
-
-    if(!InspectorManager::get_inspector(KZ_ENGINE_NAME, true, sc))
-    {
-        ParseError("snort_ml requires %s to be configured in the global policy.", KZ_ENGINE_NAME);
-        return false;
-    }
+    if (v.is("uri_depth"))
+        conf.uri_depth = v.get_int32();
+    else if (v.is("client_body_depth"))
+        conf.client_body_depth = v.get_int32();
+    else if (v.is("http_param_threshold"))
+        conf.http_param_threshold = v.get_real();
+    else if (v.is("ftp_request_depth"))
+        conf.ftp_request_depth = v.get_int32();
+    else if (v.is("ftp_cmd_threshold"))
+        conf.ftp_cmd_threshold = v.get_real();
 
     return true;
 }
 
-//--------------------------------------------------------------------------
-// api stuff
-//--------------------------------------------------------------------------
-
-static Module* mod_ctor()
-{ return new KaizenModule; }
-
-static void mod_dtor(Module* m)
-{ delete m; }
-
-static Inspector* kaizen_ctor(Module* m)
+bool KaizenModule::end(const char*, int, SnortConfig*)
 {
-    KaizenModule* km = (KaizenModule*)m;
-    return new Kaizen(km->get_conf());
+    if (!conf.uri_depth && !conf.client_body_depth && !conf.ftp_request_depth)
+        ParseWarning(WARN_CONF,
+            "No input depth set for snort_ml; HTTP and FTP traffic will not be analyzed.");
+
+    return true;
 }
 
-static void kaizen_dtor(Inspector* p)
+const RuleMap* KaizenModule::get_rules() const
+{ return kaizen_rules; }
+
+const PegInfo* KaizenModule::get_pegs() const
+{ return peg_names; }
+
+PegCount* KaizenModule::get_counts() const
+{ return (PegCount*)&kaizen_stats; }
+
+ProfileStats* KaizenModule::get_profile() const
+{ return &kaizen_prof; }
+
+void KaizenModule::set_trace(const Trace* trace) const
+{ kaizen_trace = trace; }
+
+const TraceOption* KaizenModule::get_trace_options() const
 {
-    assert(p);
-    delete p;
+#ifndef DEBUG_MSGS
+    return nullptr;
+#else
+    return kaizen_trace_options;
+#endif
 }
-
-static const InspectApi kaizen_api =
-{
-    {
-#if defined(HAVE_LIBML) || defined(REG_TEST)
-        PT_INSPECTOR,
-#else
-        PT_MAX,
-#endif
-        sizeof(InspectApi),
-        INSAPI_VERSION,
-        0,
-        API_RESERVED,
-        API_OPTIONS,
-        KZ_NAME,
-        KZ_HELP,
-        mod_ctor,
-        mod_dtor
-    },
-    IT_PASSIVE,
-    PROTO_BIT__ANY_IP,  // proto_bits;
-    nullptr,  // buffers
-    nullptr,  // service
-    nullptr,  // pinit
-    nullptr,  // pterm
-    nullptr,  // tinit
-    nullptr,  // tterm
-    kaizen_ctor,
-    kaizen_dtor,
-    nullptr,  // ssn
-    nullptr   // reset
-};
-
-#ifdef BUILDING_SO
-SO_PUBLIC const BaseApi* snort_plugins[] =
-#else
-const BaseApi* nin_kaizen[] =
-#endif
-{
-    &kaizen_api.base,
-    nullptr
-};
