@@ -61,29 +61,26 @@ static bool build_classifier(const string& model, BinaryClassifier*& dst)
 // module
 //--------------------------------------------------------------------------
 
-static const Parameter kaizen_engine_params[] =
+static const Parameter model_params[] =
 {
-    { "http_param_models", Parameter::PT_LIST, nullptr, nullptr, "list of model file paths" },
+    { "path", Parameter::PT_STRING, nullptr, nullptr, "Path to model file" },
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
+static const Parameter kaizen_engine_params[] =
+{
+    { "models", Parameter::PT_LIST, model_params, nullptr, "List of ML models" },
+    { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
+};
+
+
 KaizenEngineModule::KaizenEngineModule() : Module(KZ_ENGINE_NAME, KZ_ENGINE_HELP, kaizen_engine_params) {}
 
-bool KaizenEngineModule::set(const char* name, Value& v, SnortConfig*)
+bool KaizenEngineModule::set(const char* fqn, Value& v, SnortConfig*)
 {
-    if (strcmp(name, "http_param_models") == 0)
+    if (strcmp(fqn, "snort_ml_engine.models.path") == 0)
     {
-        std::string token;
-        conf.http_param_model_paths.clear();
-
-        v.set_first_token();
-
-        while (v.get_next_csv_token(token))
-        {
-            if (!token.empty())
-                conf.http_param_model_paths.push_back(token);
-        }
-
+        conf.http_param_model_paths.push_back(v.get_string());
         return true;
     }
 

@@ -55,7 +55,10 @@ class KaizenEngine : public snort::Inspector
 {
 public:
     KaizenEngine(const KaizenEngineConfig&);
-
+    
+    bool begin(const char* fqn, int idx, SnortConfig*) override;
+    bool set(const char* name, Value& v, SnortConfig*) override;
+    bool end(const char* fqn, int idx, SnortConfig*) override;
     void show(const snort::SnortConfig*) const override;
     void eval(snort::Packet*) override {}
 
