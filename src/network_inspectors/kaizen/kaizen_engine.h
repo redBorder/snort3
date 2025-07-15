@@ -31,6 +31,13 @@ class BinaryClassifier;
 struct KaizenEngineConfig
 {
     std::vector<std::string> http_param_model_paths;
+    std::vector<std::string> ftp_cmd_model_paths;
+};
+
+struct KaizenModelBuffers
+{
+    std::vector<std::string> http_models;
+    std::vector<std::string> ftp_models;
 };
 
 class KaizenEngineModule : public snort::Module
@@ -65,14 +72,16 @@ public:
     void install_reload_handler(snort::SnortConfig*) override;
 
     static std::vector<BinaryClassifier*> classifiers;
-    static const std::vector<BinaryClassifier*>& get_classifiers();
+    static const std::vector<BinaryClassifier*>& get_http_classifiers();
+    static const std::vector<BinaryClassifier*>& get_ftp_classifiers();
 
 private:
-    std::vector<std::string> read_models();
+    KaizenModelBuffers read_models();
     bool validate_model(const std::string& model);
 
     KaizenEngineConfig config;
     std::vector<std::string> http_param_models;
+    std::vector<std::string> ftp_cmd_models;
 };
 
 
