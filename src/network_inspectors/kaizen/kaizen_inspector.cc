@@ -258,7 +258,6 @@ void FtpResponseHandler::handle(DataEvent& de, Flow*)
     const char* data = rsp.msg_begin;
     int32_t data_len = rsp.msg_size;
 
-    std::cout << "FTP Res " << std::endl;
     if (!data || data_len <= 0 || classifiers.empty())
         return;
 
