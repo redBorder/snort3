@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //--------------------------------------------------------------------------
 // kaizen_module.cc author Brandon Stultz <brastult@cisco.com>
+// extended by Miguel Álvarez <malvarez@redborder.com> MultiModel & MultiProtocol
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -40,13 +41,23 @@ static const Parameter kaizen_params[] =
 
     { "http_param_threshold", Parameter::PT_REAL, "0:1", "0.95",
       "alert threshold for http_param_model" },
+    
+    { "ftp_cmd_threshold", Parameter::PT_REAL, "0:1", "0.95",
+      "alert threshold for ftp_cmd_model" },
+
+    { "ftp_request_depth", Parameter::PT_INT, "-1:max31", "0",
+      "number of input FTP request command bytes to scan (-1 unlimited)" },
+
+    { "ftp_response_depth", Parameter::PT_INT, "-1:max31", "0",
+      "number of input FTP response command bytes to scan (-1 unlimited)" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
 static const RuleMap kaizen_rules[] =
 {
-    { KZ_SID, "potential threat found in HTTP parameters via Neural Network Based Exploit Detection" },
+    { KZ_HTTP_SID, "potential threat found in HTTP parameters via Neural Network Based Exploit Detection" },
+    { KZ_FTP_SID, "potential threat found in FTP cmd via Neural Network Based Exploit Detection" },
     { 0, nullptr }
 };
 
@@ -56,6 +67,8 @@ static const PegInfo peg_names[] =
     { CountType::SUM, "client_body_alerts", "total number of alerts triggered on HTTP client body" },
     { CountType::SUM, "uri_bytes", "total number of HTTP URI bytes processed" },
     { CountType::SUM, "client_body_bytes", "total number of HTTP client body bytes processed" },
+    { CountType::SUM, "ftp_cmd_alerts", "total number of alerts triggered on FTP commands" },
+    { CountType::SUM, "ftp_cmd_bytes", "total number of FTP command bytes processed" },
     { CountType::SUM, "libml_calls", "total libml calls" },
     { CountType::END, nullptr, nullptr }
 };
@@ -80,6 +93,10 @@ bool KaizenModule::set(const char*, Value& v, SnortConfig*)
         "Field::length maximum value should not exceed uri_depth type range");
     static_assert(std::is_same<decltype((Field().length())), decltype(conf.client_body_depth)>::value,
         "Field::length maximum value should not exceed client_body_depth type range");
+    static_assert(std::is_same<decltype((Field().length())), decltype(conf.ftp_request_depth)>::value,
+        "Field::length maximum value should not exceed ftp_request_depth type range");
+    static_assert(std::is_same<decltype((Field().length())), decltype(conf.ftp_response_depth)>::value,
+        "Field::length maximum value should not exceed ftp_response_depth type range");
 
     if (v.is("uri_depth"))
         conf.uri_depth = v.get_int32();
@@ -87,33 +104,47 @@ bool KaizenModule::set(const char*, Value& v, SnortConfig*)
         conf.client_body_depth = v.get_int32();
     else if (v.is("http_param_threshold"))
         conf.http_param_threshold = v.get_real();
+    else if (v.is("ftp_request_depth"))
+        conf.ftp_request_depth = v.get_int32();
+    else if (v.is("ftp_response_depth"))
+        conf.ftp_response_depth = v.get_int32();
 
     return true;
 }
 
 bool KaizenModule::end(const char*, int, snort::SnortConfig*)
 {
-    if (!conf.uri_depth && !conf.client_body_depth)
+    if (!conf.uri_depth && !conf.client_body_depth && !conf.ftp_request_depth && !conf.ftp_response_depth)
         ParseWarning(WARN_CONF,
-            "Neither of snort_ml source depth is set, snort_ml won't process traffic.");
+            "Neither of snort_ml source depths (HTTP URI, HTTP body, FTP cmd) is set, snort_ml won't process traffic.");
 
     return true;
 }
 
 const RuleMap* KaizenModule::get_rules() const
-{ return kaizen_rules; }
+{ 
+    return kaizen_rules; 
+}
 
 const PegInfo* KaizenModule::get_pegs() const
-{ return peg_names; }
+{ 
+    return peg_names; 
+}
 
 PegCount* KaizenModule::get_counts() const
-{ return (PegCount*)&kaizen_stats; }
+{ 
+    return (PegCount*)&kaizen_stats; 
+}
 
 ProfileStats* KaizenModule::get_profile() const
-{ return &kaizen_prof; }
+{ 
+    return &kaizen_prof; 
+}
 
 void KaizenModule::set_trace(const Trace* trace) const
-{ kaizen_trace = trace; }
+{ 
+    kaizen_trace = trace; 
+}
 
 const TraceOption* KaizenModule::get_trace_options() const
 {

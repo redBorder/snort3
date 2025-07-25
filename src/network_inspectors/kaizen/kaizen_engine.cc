@@ -25,6 +25,7 @@
 
 #include <cassert>
 #include <fstream>
+#include <memory>
 
 #ifdef HAVE_LIBML
 #include <libml.h>
@@ -41,12 +42,23 @@
 using namespace snort;
 using namespace std;
 
-static THREAD_LOCAL BinaryClassifier* classifier = nullptr;
+static thread_local std::vector<BinaryClassifier*>* http_classifiers_ptr = nullptr;
+static thread_local std::vector<BinaryClassifier*>* ftp_classifiers_ptr = nullptr;
+
+static std::vector<BinaryClassifier*>& get_classifiers_storage(KaizenEngine::ClassifierType type)
+{
+    thread_local std::vector<BinaryClassifier*>*& ptr =
+        (type == KaizenEngine::ClassifierType::HTTP) ? http_classifiers_ptr : ftp_classifiers_ptr;
+
+    if (!ptr)
+        ptr = new std::vector<BinaryClassifier*>();
+
+    return *ptr;
+}
 
 static bool build_classifier(const string& model, BinaryClassifier*& dst)
 {
     dst = new BinaryClassifier();
-
     return dst->build(model);
 }
 
@@ -54,50 +66,77 @@ static bool build_classifier(const string& model, BinaryClassifier*& dst)
 // module
 //--------------------------------------------------------------------------
 
-static const Parameter kaizen_engine_params[] =
+static const Parameter model_params[] =
 {
-    { "http_param_model", Parameter::PT_STRING, nullptr, nullptr, "path to the model file" },
+    { "path", Parameter::PT_STRING, nullptr, nullptr, "Path to model file" },
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
 
+static const Parameter kaizen_engine_params[] =
+{
+    { "http_param_models", Parameter::PT_LIST, model_params, nullptr, "List of ML models" },
+    { "ftp_cmd_models", Parameter::PT_LIST, model_params, nullptr, "List of ML models" },
+    { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
+};
+
+
 KaizenEngineModule::KaizenEngineModule() : Module(KZ_ENGINE_NAME, KZ_ENGINE_HELP, kaizen_engine_params) {}
 
-bool KaizenEngineModule::set(const char*, Value& v, SnortConfig*)
+bool KaizenEngineModule::set(const char* fqn, Value& v, SnortConfig*)
 {
-    if (v.is("http_param_model"))
-        conf.http_param_model_path = v.get_string();
+    if (strcmp(fqn, "snort_ml_engine.http_param_models.path") == 0)
+    {
+        conf.http_param_model_paths.push_back(v.get_string());
+        return true;
+    }
 
-    return true;
+    if (strcmp(fqn, "snort_ml_engine.ftp_cmd_models.path") == 0)
+    {
+        conf.ftp_cmd_model_paths.push_back(v.get_string());
+        return true;
+    }
+
+    return false;
 }
 
 //--------------------------------------------------------------------------
-// reload tuner
+// reload tuner for models
 //--------------------------------------------------------------------------
 
 class KaizenReloadTuner : public snort::ReloadResourceTuner
 {
 public:
-    explicit KaizenReloadTuner(const string& http_param_model) : http_param_model(http_param_model) {}
+    KaizenReloadTuner(const std::vector<std::string>& models, KaizenEngine::ClassifierType type, const char* type_label)
+        : models(models), type(type), label(type_label) {}
+
     ~KaizenReloadTuner() override = default;
 
     bool tinit() override
     {
-        delete classifier;
+        std::vector<BinaryClassifier*>& classifiers = get_classifiers_storage(type);
 
-        if (!build_classifier(http_param_model, classifier))
-            ErrorMessage("Can't build the classifier model.\n");
+        for (auto* c : classifiers)
+            delete c;
+        classifiers.clear();
+
+        for (const auto& model : models)
+        {
+            BinaryClassifier* c = nullptr;
+            if (!build_classifier(model, c))
+                ErrorMessage("Can't build the %s classifier model: %s\n", label, model.c_str());
+            classifiers.push_back(c);
+        }
 
         return false;
     }
 
-    bool tune_packet_context() override
-    { return true; }
-
-    bool tune_idle_context() override
-    { return true; }
+    bool tune_packet_context() override { return true; }
+    bool tune_idle_context() override { return true; }
 
 private:
-    const string& http_param_model;
+    const std::vector<std::string>& models;
+    KaizenEngine::ClassifierType type;
+    const char* label;
 };
 
 //--------------------------------------------------------------------------
@@ -106,69 +145,117 @@ private:
 
 KaizenEngine::KaizenEngine(const KaizenEngineConfig& c) : config(c)
 {
-    http_param_model = read_model();
+    KaizenModelBuffers buffers = read_models();
 
-    if (!validate_model())
-        ParseError("Can't build the classifier model %s.", config.http_param_model_path.c_str());
+    auto kaizen_validate = [this](std::vector<std::string>& target,
+                                      std::vector<std::string>&& source,
+                                      const std::vector<std::string>& paths)
+    {
+        target = std::move(source);
+        for (size_t i = 0; i < target.size(); ++i)
+        {
+            if (!validate_model(target[i]))
+                ParseError("Can't build the classifier model %s.", paths[i].c_str());
+        }
+    };
+
+    kaizen_validate(http_param_models, std::move(buffers.http_models), config.http_param_model_paths);
+    kaizen_validate(ftp_cmd_models, std::move(buffers.ftp_models), config.ftp_cmd_model_paths);
 }
 
 void KaizenEngine::show(const SnortConfig*) const
-{ ConfigLogger::log_value("http_param_model", config.http_param_model_path.c_str()); }
-
-string KaizenEngine::read_model()
 {
-    const char* hint = config.http_param_model_path.c_str();
-    string path;
-    size_t size = 0;
+    for (const auto& path : config.http_param_model_paths)
+        ConfigLogger::log_value("http_param_model", path.c_str());
 
-    if (!get_config_file(hint, path) || !get_file_size(path, size))
-    {
-        ParseError("snort_ml_engine: could not read model file: %s", hint);
-        return {};
-    }
-
-    ifstream file(path, ios::binary);
-
-    if (!file.is_open())
-    {
-        ParseError("snort_ml_engine: could not read model file: %s", hint);
-        return {};
-    }
-
-    if (size == 0)
-    {
-        ParseError("snort_ml_engine: empty model file: %s", hint);
-        return {};
-    }
-
-    string buffer(size, '\0');
-    file.read(&buffer[0], streamsize(size));
-    return buffer;
+    for (const auto& path : config.ftp_cmd_model_paths)
+        ConfigLogger::log_value("ftp_cmd_model", path.c_str());
 }
 
-bool KaizenEngine::validate_model()
+void load_model_files(const std::vector<std::string>& model_paths, std::vector<std::string>& out_buffers, const char* error_prefix)
+{
+    for (const auto& model_path : model_paths)
+    {
+        const char* hint = model_path.c_str();
+        std::string path;
+        size_t size = 0;
+
+        if (!get_config_file(hint, path) || !get_file_size(path, size))
+            ParseError("%s: could not read model file: %s", error_prefix, hint);
+
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open())
+            ParseError("%s: could not read model file: %s", error_prefix, hint);
+
+        if (size == 0)
+            ParseError("%s: empty model file: %s", error_prefix, hint);
+
+        std::string buffer(size, '\0');
+        file.read(&buffer[0], std::streamsize(size));
+        out_buffers.push_back(std::move(buffer));
+    }
+}
+
+KaizenModelBuffers KaizenEngine::read_models()
+{
+    KaizenModelBuffers model_buffers;
+
+    load_model_files(config.http_param_model_paths, model_buffers.http_models, "snort_ml_engine");
+    load_model_files(config.ftp_cmd_model_paths, model_buffers.ftp_models, "snort_ml_engine");
+
+    return model_buffers;
+}
+
+bool KaizenEngine::validate_model(const string& model)
 {
     BinaryClassifier* test_classifier = nullptr;
-    bool res = build_classifier(http_param_model, test_classifier);
+    bool res = build_classifier(model, test_classifier);
     delete test_classifier;
-
     return res;
 }
 
+static void rebuild_classifiers(std::vector<BinaryClassifier*>& storage, const std::vector<std::string>& models, const char* label)
+{
+    for (auto* c : storage)
+        delete c;
+    storage.clear();
+
+    for (const auto& model : models)
+    {
+        BinaryClassifier* c = nullptr;
+        if (!build_classifier(model, c))
+            ErrorMessage("Can't build the %s classifier model: %s\n", label, model.c_str());
+        storage.push_back(c);
+    }
+}
+
 void KaizenEngine::tinit()
-{ build_classifier(http_param_model, classifier); }
+{
+    rebuild_classifiers(get_classifiers_storage(KaizenEngine::ClassifierType::HTTP), http_param_models, "HTTP");
+    rebuild_classifiers(get_classifiers_storage(KaizenEngine::ClassifierType::FTP), ftp_cmd_models, "FTP");
+}
 
 void KaizenEngine::tterm()
 {
-    delete classifier;
-    classifier = nullptr;
+    for (KaizenEngine::ClassifierType type : {KaizenEngine::ClassifierType::HTTP, KaizenEngine::ClassifierType::FTP})
+    {
+        std::vector<BinaryClassifier*>& classifiers = get_classifiers_storage(type);
+        for (auto* c : classifiers)
+            delete c;
+        classifiers.clear();
+    }
 }
 
 void KaizenEngine::install_reload_handler(SnortConfig* sc)
-{ sc->register_reload_handler(new KaizenReloadTuner(http_param_model)); }
+{
+    sc->register_reload_handler(new KaizenReloadTuner(http_param_models, KaizenEngine::ClassifierType::HTTP, "HTTP"));
+    sc->register_reload_handler(new KaizenReloadTuner(ftp_cmd_models, KaizenEngine::ClassifierType::FTP, "FTP"));
+}
 
-BinaryClassifier* KaizenEngine::get_classifier()
-{ return classifier; }
+const std::vector<BinaryClassifier*>& KaizenEngine::get_classifiers(KaizenEngine::ClassifierType type)
+{
+    return get_classifiers_storage(type);
+}
 
 //--------------------------------------------------------------------------
 // api stuff

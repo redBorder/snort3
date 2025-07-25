@@ -81,7 +81,7 @@ TEST_GROUP(pub_sub_ftp_events_test)
 
 TEST(pub_sub_ftp_events_test, ftp_request_event)
 {
-    FtpRequestEvent event(session);
+    FtpResponseEvent event(session);
 
     auto cmd = std::string(event.get_request().cmd_begin, event.get_request().cmd_size);
     auto param = std::string(event.get_request().param_begin, event.get_request().param_size);

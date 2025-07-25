@@ -30,14 +30,20 @@
 class BinaryClassifier;
 struct KaizenEngineConfig
 {
-    std::string http_param_model_path;
+    std::vector<std::string> http_param_model_paths;
+    std::vector<std::string> ftp_cmd_model_paths;
+};
+
+struct KaizenModelBuffers
+{
+    std::vector<std::string> http_models;
+    std::vector<std::string> ftp_models;
 };
 
 class KaizenEngineModule : public snort::Module
 {
 public:
     KaizenEngineModule();
-
     bool set(const char*, snort::Value&, snort::SnortConfig*) override;
 
     Usage get_usage() const override
@@ -54,6 +60,13 @@ private:
 class KaizenEngine : public snort::Inspector
 {
 public:
+
+    enum class ClassifierType
+    {
+        HTTP,
+        FTP
+    };
+
     KaizenEngine(const KaizenEngineConfig&);
 
     void show(const snort::SnortConfig*) const override;
@@ -64,14 +77,16 @@ public:
 
     void install_reload_handler(snort::SnortConfig*) override;
 
-    static BinaryClassifier* get_classifier();
+    static std::vector<BinaryClassifier*> classifiers;
+    static const std::vector<BinaryClassifier*>& get_classifiers(KaizenEngine::ClassifierType type);
 
 private:
-    std::string read_model();
-    bool validate_model();
+    KaizenModelBuffers read_models();
+    bool validate_model(const std::string& model);
 
     KaizenEngineConfig config;
-    std::string http_param_model;
+    std::vector<std::string> http_param_models;
+    std::vector<std::string> ftp_cmd_models;
 };
 
 

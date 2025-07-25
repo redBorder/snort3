@@ -33,10 +33,12 @@
 #include "log/messages.h"
 #include "managers/inspector_manager.h"
 #include "pub_sub/http_events.h"
+#include "pub_sub/ftp_events.h"
 #include "pub_sub/http_request_body_event.h"
 #include "utils/util.h"
 
 #include "kaizen_engine.h"
+#include <iostream>
 
 using namespace snort;
 using namespace std;
@@ -65,7 +67,7 @@ void HttpBodyHandler::handle(DataEvent& de, Flow*)
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
-    BinaryClassifier* classifier = KaizenEngine::get_classifier();
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers(KaizenEngine::ClassifierType::HTTP);
     KaizenConfig config = inspector.get_config();
     HttpRequestBodyEvent* he = (HttpRequestBodyEvent*)&de;
 
@@ -80,26 +82,36 @@ void HttpBodyHandler::handle(DataEvent& de, Flow*)
 
     const size_t len = std::min((size_t)config.client_body_depth, (size_t)body_len);
 
-    assert(classifier);
-
-    float output = 0.0;
+    if (classifiers.empty())
+        return;
 
     kaizen_stats.libml_calls++;
 
-    if (!classifier->run(body, len, output))
-        return;
+    for (size_t i = 0; i < classifiers.size(); ++i)
+    {
+        BinaryClassifier* classifier = classifiers[i];
+        assert(classifier);
+
+        if (!classifier)
+            continue;
+
+        float output = 0.0;
+        if (classifier->run(body, len, output))
+        {
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "input (body): %.*s\n", (int)len, body);
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "output: %f\n", static_cast<double>(output));
+
+            if ((double)output > config.http_param_threshold)
+            {
+                kaizen_stats.client_body_alerts++;
+                debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
+                DetectionEngine::queue_event(KZ_GID, KZ_HTTP_SID);
+                break;
+            }
+        }
+    }
 
     kaizen_stats.client_body_bytes += len;
-
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "input (body): %.*s\n", (int)len, body);
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "output: %f\n", static_cast<double>(output));
-
-    if ((double)output > config.http_param_threshold)
-    {
-        kaizen_stats.client_body_alerts++;
-        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
-        DetectionEngine::queue_event(KZ_GID, KZ_SID);
-    }
 }
 
 //--------------------------------------------------------------------------
@@ -123,39 +135,161 @@ void HttpUriHandler::handle(DataEvent& de, Flow*)
     // cppcheck-suppress unreadVariable
     Profile profile(kaizen_prof);
 
-    BinaryClassifier* classifier = KaizenEngine::get_classifier();
-    KaizenConfig config = inspector.get_config();
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers(KaizenEngine::ClassifierType::HTTP);
+    const KaizenConfig config = inspector.get_config();
     HttpEvent* he = (HttpEvent*)&de;
 
     int32_t query_len = 0;
     const char* query = (const char*)he->get_uri_query(query_len);
 
-    if (!query || query_len <= 0)
+    if (!query || query_len <= 0 || classifiers.empty())
         return;
 
     const size_t len = std::min((size_t)config.uri_depth, (size_t)query_len);
-
-    assert(classifier);
-
-    float output = 0.0;
-
-    kaizen_stats.libml_calls++;
-
-    if (!classifier->run(query, (size_t)len, output))
-        return;
-
     kaizen_stats.uri_bytes += len;
 
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "input (query): %.*s\n", (int)len, query);
-    debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "output: %f\n", static_cast<double>(output));
-
-    if ((double)output > config.http_param_threshold)
+    for (size_t i = 0; i < classifiers.size(); ++i)
     {
-        kaizen_stats.uri_alerts++;
-        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "<ALERT>\n");
-        DetectionEngine::queue_event(KZ_GID, KZ_SID);
+        BinaryClassifier* classifier = classifiers[i];
+        assert(classifier);
+
+        float output = 0.0;
+        kaizen_stats.libml_calls++;
+
+        if (!classifier->run(query, len, output))
+            continue;
+
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu input (query): %.*s\n", i, (int)len, query);
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu output: %f\n", i, static_cast<double>(output));
+
+        if ((double)output > config.http_param_threshold)
+        {
+            kaizen_stats.uri_alerts++;
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu <ALERT>\n", i);
+            DetectionEngine::queue_event(KZ_GID, KZ_HTTP_SID);
+            break;
+        }
     }
 }
+
+//--------------------------------------------------------------------------
+// FTP cmd event handler
+//--------------------------------------------------------------------------
+
+class FtpRequestHandler : public DataHandler
+{
+public:
+    FtpRequestHandler(Kaizen& kz)
+        : DataHandler(KZ_NAME), inspector(kz) {}
+
+    void handle(DataEvent&, Flow*) override;
+
+private:
+    Kaizen& inspector;
+};
+
+void FtpRequestHandler::handle(DataEvent& de, Flow*)
+{
+    // cppcheck-suppress unreadVariable
+    Profile profile(kaizen_prof);
+
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers(KaizenEngine::ClassifierType::FTP);
+    const KaizenConfig config = inspector.get_config();
+
+    FtpRequestEvent* fe = (FtpRequestEvent*)&de;
+    const FTP_CLIENT_REQ& req = fe->get_request();
+
+    const char* data = req.cmd_line;
+    int32_t data_len = req.cmd_line_size;
+
+    if (!data || data_len <= 0 || classifiers.empty())
+        return;
+
+    const size_t len = std::min((size_t)config.ftp_request_depth, (size_t)data_len);
+    kaizen_stats.ftp_cmd_bytes += len;
+    kaizen_stats.libml_calls++;
+
+    for (size_t i = 0; i < classifiers.size(); ++i)
+    {
+        BinaryClassifier* classifier = classifiers[i];
+        assert(classifier);
+
+        float output = 0.0;
+        if (!classifier->run(data, len, output))
+            continue;
+
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu input (FTP cmd): %.*s\n", i, (int)len, data);
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu output: %f\n", i, static_cast<double>(output));
+
+        if ((double)output > config.ftp_cmd_threshold)
+        {
+            kaizen_stats.ftp_cmd_alerts++;
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu <ALERT>\n", i);
+            DetectionEngine::queue_event(KZ_GID, KZ_FTP_SID);
+            break;
+        }
+    }
+}
+
+class FtpResponseHandler : public DataHandler
+{
+public:
+    FtpResponseHandler(Kaizen& kz)
+        : DataHandler(KZ_NAME), inspector(kz) {}
+
+    void handle(DataEvent&, Flow*) override;
+
+private:
+    Kaizen& inspector;
+};
+
+void FtpResponseHandler::handle(DataEvent& de, Flow*)
+{
+    // cppcheck-suppress unreadVariable
+    Profile profile(kaizen_prof);
+
+    const std::vector<BinaryClassifier*>& classifiers = KaizenEngine::get_classifiers(KaizenEngine::ClassifierType::FTP);
+
+    const KaizenConfig config = inspector.get_config();
+
+    FtpResponseEvent* fe = static_cast<FtpResponseEvent*>(&de);
+    const FTP_SERVER_RSP& rsp = fe->get_response();
+
+    const char* data = rsp.msg_begin;
+    int32_t data_len = rsp.msg_size;
+
+    if (!data || data_len <= 0 || classifiers.empty())
+        return;
+
+    const size_t len = std::min(
+        static_cast<size_t>(config.ftp_response_depth),
+        static_cast<size_t>(data_len));
+
+    kaizen_stats.ftp_cmd_bytes += len;
+    kaizen_stats.libml_calls++;
+
+    for (size_t i = 0; i < classifiers.size(); ++i)
+    {
+        BinaryClassifier* classifier = classifiers[i];
+        assert(classifier);
+
+        float output = 0.0;
+        if (!classifier->run(data, len, output))
+            continue;
+
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu input (FTP response): %.*s\n", i, static_cast<int>(len), data);
+        debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu output: %f\n", i, static_cast<double>(output));
+
+        if (static_cast<double>(output) > config.ftp_cmd_threshold)
+        {
+            kaizen_stats.ftp_cmd_alerts++;
+            debug_logf(kaizen_trace, TRACE_CLASSIFIER, nullptr, "Model %zu <ALERT>\n", i);
+            DetectionEngine::queue_event(KZ_GID, KZ_FTP_SID);
+            break;
+        }
+    }
+}
+
 
 //--------------------------------------------------------------------------
 // inspector
@@ -165,16 +299,26 @@ void Kaizen::show(const SnortConfig*) const
 {
     ConfigLogger::log_limit("uri_depth", config.uri_depth, -1);
     ConfigLogger::log_limit("client_body_depth", config.client_body_depth, -1);
+    ConfigLogger::log_limit("ftp_request_depth", config.ftp_request_depth, -1);
+    ConfigLogger::log_limit("ftp_response_depth", config.ftp_response_depth, -1);
+    ConfigLogger::log_value("ftp_cmd_threshold", config.ftp_cmd_threshold);
     ConfigLogger::log_value("http_param_threshold", config.http_param_threshold);
 }
 
 bool Kaizen::configure(SnortConfig* sc)
 {
+
     if (config.uri_depth != 0)
         DataBus::subscribe(http_pub_key, HttpEventIds::REQUEST_HEADER, new HttpUriHandler(*this));
 
     if (config.client_body_depth != 0)
         DataBus::subscribe(http_pub_key, HttpEventIds::REQUEST_BODY, new HttpBodyHandler(*this));
+
+    if (config.ftp_request_depth != 0)
+        DataBus::subscribe(ftp_pub_key, FtpEventIds::FTP_REQUEST, new FtpRequestHandler(*this));
+    
+    if (config.ftp_response_depth != 0)
+        DataBus::subscribe(ftp_pub_key, FtpEventIds::FTP_RESPONSE, new FtpResponseHandler(*this));
 
     if(!InspectorManager::get_inspector(KZ_ENGINE_NAME, true, sc))
     {

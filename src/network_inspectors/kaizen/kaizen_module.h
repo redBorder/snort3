@@ -26,7 +26,8 @@
 #include "trace/trace_api.h"
 
 #define KZ_GID 411
-#define KZ_SID 1
+#define KZ_HTTP_SID 1
+#define KZ_FTP_SID 2
 
 #define KZ_NAME "snort_ml"
 #define KZ_HELP "machine learning based exploit detector"
@@ -39,6 +40,8 @@ struct KaizenStats
     PegCount client_body_alerts;
     PegCount uri_bytes;
     PegCount client_body_bytes;
+    PegCount ftp_cmd_bytes;
+    PegCount ftp_cmd_alerts;
     PegCount libml_calls;
 };
 
@@ -50,8 +53,11 @@ struct KaizenConfig
 {
     std::string http_param_model_path;
     double http_param_threshold;
+    double ftp_cmd_threshold;
     int32_t uri_depth;
     int32_t client_body_depth;
+    int32_t ftp_request_depth;
+    int32_t ftp_response_depth;
 };
 
 class KaizenModule : public snort::Module
