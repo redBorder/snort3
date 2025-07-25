@@ -45,6 +45,7 @@
 #include "protocols/udp.h"
 #include "protocols/vlan.h"
 #include "utils/stats.h"
+#include "events/http_queue.h"
 #include "enrichment/sensor_enrichment.h"
 
 #define DEF_VERIFY_SSL "true"
@@ -54,17 +55,139 @@ using namespace std;
 
 #define LOG_BUFFER (4 * K_BYTES)
 
+enum MODE {
+    BULK,
+    NORMAL
+};
+
+#define DEF_HTTP_MAX_QUEUE_SIZE 1024
+#define DEF_HTTP_MAX_SECONDS 60
+#define DEF_CONTROL_THREAD_SLEEP 60
+
 static THREAD_LOCAL BinaryWriter *json_log;
 static const char *priority_name[] = {NULL, "high", "medium", "low", "very low"};
 
-thread_local std::unique_ptr<MacVendorDatabase> _HTTPMacVendorDB = nullptr;
+thread_local unique_ptr<MacVendorDatabase> _HTTPMacVendorDB = nullptr;
 
 MacVendorDatabase& HTTPMacVendorDB() {
     if (!_HTTPMacVendorDB) {
-        _HTTPMacVendorDB = std::make_unique<MacVendorDatabase>();
+        _HTTPMacVendorDB = make_unique<MacVendorDatabase>();
     }
     return *_HTTPMacVendorDB;
 }
+
+uint32_t global_max_queue_size = DEF_HTTP_MAX_QUEUE_SIZE;
+chrono::milliseconds global_max_time = chrono::seconds{DEF_HTTP_MAX_SECONDS};
+bool global_verify_ssl;
+
+namespace AlertHTTP {
+
+class Timer {
+private:
+    std::chrono::steady_clock::time_point last_time_;
+public:
+    Timer() : last_time_(std::chrono::steady_clock::now()) {}
+
+    void reset() {
+        last_time_ = std::chrono::steady_clock::now();
+    }
+
+    std::chrono::milliseconds elapsed() const {
+        auto now = std::chrono::steady_clock::now();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_);
+    }
+};
+
+static cpr::AsyncResponse build_async_req(const std::string& host, const std::string& body) {
+    return cpr::PostAsync(
+        cpr::Url{host},
+        cpr::Body{body},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::VerifySsl(global_verify_ssl)
+    );
+}
+
+// no mutex needed, each thread has his own copy
+// of the the queue (-z num_thread) so we are
+// sure each thread has his own queue & control thread
+class AlertQueue {
+private:
+    struct QueueMsg {
+        std::string msg;
+        std::string host;
+    };
+
+    std::queue<QueueMsg> events_;
+    Timer timer_;
+
+    std::string build_payload(const std::string& current_host) {
+        std::ostringstream batch_payload;
+        while (!events_.empty() && events_.front().host == current_host) {
+            batch_payload << events_.front().msg << "\n";
+            events_.pop();
+        }
+        return batch_payload.str();
+    }
+
+    bool is_time_reached() const {
+        return timer_.elapsed() >= global_max_time;
+    }
+
+    bool is_full() const {
+        return events_.size() >= global_max_queue_size;
+    }
+public:
+    bool should_flush() const {
+        if (events_.empty()) return false;
+        return this->is_full() || this->is_time_reached();
+    }
+
+    bool is_empty() const {
+        return events_.empty();
+    }
+
+    void enqueue(const std::string& host, const std::string& msg) {
+        if (this->is_full()) // We pop if queue full (oldest discarded)
+            events_.pop();
+        
+        events_.push(QueueMsg{msg, host});
+    }
+
+    void flush_queue() {
+        if (events_.empty()) {
+            return;
+        }
+
+        std::string current_host = events_.front().host;
+        std::string batch_payload = build_payload(current_host);
+
+        if (!batch_payload.empty()) {
+            auto async_response = build_async_req(current_host, batch_payload);
+            // We want best effort sending, we dont need to handle errors
+            // re-sending alerts or something related, if we lose the req, then we dont do anyhing
+            AsyncResponseManager::getInstance().addResponse(std::move(async_response));
+            timer_.reset();
+        }
+    }
+};
+
+}
+
+static void thread_flush_controller(atomic<bool>& running, AlertHTTP::AlertQueue& queue) {
+    while (running) {
+        if (queue.should_flush()) {
+            queue.flush_queue();
+        }
+        this_thread::sleep_for(chrono::seconds(DEF_CONTROL_THREAD_SLEEP));
+    }
+    while (!queue.is_empty()) {
+        queue.flush_queue();
+    }
+}
+
+thread_local AlertHTTP::AlertQueue alert_queue;
+thread_local unique_ptr<thread> flush_thread;
+thread_local atomic<bool> fifo_flush_thread{false};
 
 #define S_NAME "alert_http"
 
@@ -912,6 +1035,15 @@ static const Parameter s_params[] =
 
         {"geoip_db", Parameter::PT_STRING, nullptr, nullptr,
          "geoip database"},
+    
+        {"mode", Parameter::PT_STRING, nullptr, nullptr,
+         "mode"},
+
+        {"bulk_queue_size", Parameter::PT_INT, "0:max32", nullptr,
+        "maximum number of events in queue before flushing"},
+
+        {"max_queue_flush_time", Parameter::PT_INT, nullptr, nullptr,
+        "max_queue_flush_time"},
 
         {"fields", Parameter::PT_MULTI, json_range, json_deflt,
          "selected fields will be output in given order left to right"},
@@ -939,10 +1071,12 @@ public:
 
 public:
     string sep;
+    uint8_t mode;
     string http_endpoint;
     string enrichment;
     string mac_vendors;
     string geoip_db;
+    bool verify_ssl;
     vector<JsonFunc> fields;
 };
 
@@ -976,7 +1110,30 @@ bool HTTPModule::set(const char *, Value &v, SnortConfig *)
 
     else if (v.is("geoip_db"))
         geoip_db = v.get_string();
+    
+    else if (v.is("verify_ssl"))
+        verify_ssl = v.get_bool();
 
+    else if (v.is("mode")){
+        string _mode = v.get_string();
+        if (_mode == "bulk") {
+            mode = MODE::BULK;
+        }
+    }
+    
+    else if(v.is("bulk_queue_size")){
+        uint32_t max_queue_size = v.get_uint32();
+        global_max_queue_size = max_queue_size;
+    }
+
+    else if(v.is("max_queue_flush_time")){
+        uint32_t max_queue_flush_time = v.get_uint32();
+        global_max_time = chrono::milliseconds{max_queue_flush_time};
+    }
+
+    if (mode != MODE::BULK && mode != MODE::NORMAL) {
+        mode = MODE::NORMAL;
+    }
     return true;
 }
 
@@ -1015,13 +1172,14 @@ public:
     void alert(Packet *p, const char *msg, const Event &event) override;
 
 private:
+    uint8_t mode;
     string sep;
     string group_name;
     string mac_vendors;
     string geoip_db;
     vector<JsonFunc> fields;
     string enrichment;
-    std::string http_endpoint;
+    string http_endpoint;
     bool verify_ssl;
     char errstr[512];
 };
@@ -1034,7 +1192,10 @@ HTTPLogger::HTTPLogger(HTTPModule *m)
     fields.push_back(AddTimestampField);
     mac_vendors = m->mac_vendors;
     geoip_db = m->geoip_db;
+    verify_ssl = m->verify_ssl;
     http_endpoint = m->http_endpoint;
+    mode = m->mode;
+    global_verify_ssl = verify_ssl;
 }
 
 void HTTPLogger::open()
@@ -1043,6 +1204,12 @@ void HTTPLogger::open()
 
     if(geoip_db.length() > 0) GeoIpLoader::Manager::getInstance(geoip_db);
     if(mac_vendors.length() > 0) HTTPMacVendorDB().insert_mac_vendors_from_file(mac_vendors.c_str());
+    if(mode == MODE::BULK){
+        fifo_flush_thread = true;
+        flush_thread.reset(new thread(thread_flush_controller, 
+                                        ref(fifo_flush_thread),
+                                        ref(alert_queue)));
+    }
 
 }
 
@@ -1055,6 +1222,13 @@ void HTTPLogger::close()
         _HTTPMacVendorDB.reset();
     }
     GeoIpLoader::Manager::getInstance()->unloadDB();
+
+    if(mode == MODE::BULK){
+        fifo_flush_thread = false;
+        if (flush_thread && flush_thread->joinable()) {
+            flush_thread->join();
+        }
+    }
 }
 
 void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
@@ -1074,17 +1248,22 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     char *json_event = BinaryWriter_FlushToString(json_log);
     if (json_event)
     {
-        size_t json_event_size = strlen(json_event);
-
-        cpr::AsyncResponse response = cpr::PostAsync(
-            cpr::Url{http_endpoint},
-            cpr::Body{json_event},
-            cpr::Header{{"Content-Type", "application/json"}},
-            cpr::VerifySsl(verify_ssl)
-        );
-
+        string json_copy(json_event);
+        switch(mode){
+            case MODE::NORMAL: {
+                cpr::AsyncResponse async_response = AlertHTTP::build_async_req(http_endpoint, json_copy);
+                AsyncResponseManager::getInstance().addResponse(move(async_response));
+                break;
+            }
+            case MODE::BULK:
+                alert_queue.enqueue(http_endpoint, json_copy);
+                if(alert_queue.should_flush())
+                    alert_queue.flush_queue();
+                break;
+        }
         free(json_event);
     }
+
 }   
 
 //-------------------------------------------------------------------------

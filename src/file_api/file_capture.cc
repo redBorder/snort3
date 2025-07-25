@@ -39,6 +39,7 @@
 #include "main/thread.h"
 #include "utils/stats.h"
 #include "utils/util.h"
+#include "events/http_queue.h"
 
 #include "file_mempool.h"
 #include "file_stats.h"
@@ -562,6 +563,7 @@ void FileCapture::store_file_s3()
         return;
 
     cpr::AsyncResponse async_response = s3_uploader->putObjectAsync(object_key, body, "application/octet-stream");
+    AsyncResponseManager::getInstance().addResponse(std::move(async_response));
 }
 
 // Queue files to be stored to disk
