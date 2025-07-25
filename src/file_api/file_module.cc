@@ -40,6 +40,7 @@
 #include "file_stats.h"
 
 #include "parser/parser.h"
+#include <iostream>
 
 using namespace snort;
 
@@ -98,6 +99,33 @@ static const Parameter file_id_params[] =
 
     { "decompress_buffer_size", Parameter::PT_INT, "1024:max31", "100000",
       "file decompression buffer size" },
+
+    { "access_key_id", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 access key ID" },
+
+    { "secret_access_key", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 secret access key" },
+
+    { "region", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 region" },
+
+    { "bucket_name", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 bucket name" },
+
+    { "endpoint", Parameter::PT_STRING, nullptr, nullptr,
+      "AWS S3 custom endpoint" },
+
+    { "verify_ssl", Parameter::PT_BOOL, nullptr, "true",
+      "Verify SSL certificate for AWS S3 connection" },
+
+    { "https_scheme", Parameter::PT_BOOL, nullptr, "true",
+      "Use HTTPS scheme for AWS S3 connection" },
+
+    { "enable_s3", Parameter::PT_BOOL, nullptr, "false",
+      "Enable S3 upload support" },
+
+    { "use_real_name", Parameter::PT_BOOL, nullptr, "false",
+      "Enable use real name (download payload not hash)" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
@@ -208,6 +236,34 @@ bool FileIdModule::set(const char*, Value& v, SnortConfig*)
     else if ( v.is("decompress_buffer_size") )
         FileService::decode_conf.set_decompress_buffer_size(v.get_uint32());
 
+    else if (v.is("access_key_id"))
+        fc->access_key_id = v.get_string();
+
+    else if (v.is("secret_access_key"))
+        fc->secret_access_key = v.get_string();
+
+    else if (v.is("region"))
+        fc->region = v.get_string();
+
+    else if (v.is("bucket_name"))
+        fc->bucket_name = v.get_string();
+
+    else if (v.is("endpoint"))
+        fc->endpoint = v.get_string();
+
+    else if (v.is("verify_ssl"))
+        fc->verifySsl = v.get_bool();
+
+    else if (v.is("https_scheme"))
+        fc->httpsScheme = v.get_bool();
+
+    else if (v.is("enable_s3"))
+        fc->enable_s3 = v.get_bool();
+
+    else if (v.is("use_real_name")) {
+        fc->use_real_name = v.get_bool();
+    }
+        
     else if ( v.is("rules_file") )
     {
         magic_file = "include ";

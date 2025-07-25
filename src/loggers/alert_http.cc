@@ -639,7 +639,7 @@ static bool ff_rev(const Args &a)
 static bool ff_sig_generator(const Args &a)
 {
     print_label(a, "sig_generator");
-    BinaryWriter_Print(json_log, "\"%u\"",  a.event.get_rev());
+    BinaryWriter_Print(json_log, "\"%u\"",  a.event.get_gid());
 
     return true;
 }
@@ -1076,7 +1076,7 @@ void HTTPLogger::alert(Packet *p, const char *msg, const Event &event)
     {
         size_t json_event_size = strlen(json_event);
 
-        cpr::Response response = cpr::Post(
+        cpr::AsyncResponse response = cpr::PostAsync(
             cpr::Url{http_endpoint},
             cpr::Body{json_event},
             cpr::Header{{"Content-Type", "application/json"}},

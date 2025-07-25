@@ -133,6 +133,11 @@ void sfthd_node_free(THD_NODE* sfthd_node)
         sfvar_free(sfthd_node->ip_address);
         sfthd_node->ip_address = nullptr;
     }
+    if ( sfthd_node->secondary_ip )
+    {
+        sfvar_free(sfthd_node->secondary_ip);
+        sfthd_node->secondary_ip = nullptr;
+    }
     delete sfthd_node;
 }
 
@@ -161,6 +166,10 @@ void sfthd_objs_free(ThresholdObjects* thd_objs)
                 auto ip_deleted = deleted_ip_vars.insert(node->ip_address);
                 if ( ip_deleted.second ) 
                     sfvar_free(node->ip_address);
+
+                auto secondary_ip_deleted = deleted_ip_vars.insert(node->secondary_ip);
+                if ( secondary_ip_deleted.second ) 
+                    sfvar_free(node->secondary_ip);
             }
         }
         // Clear the map after handling ip_address in all nodes.
@@ -399,7 +408,7 @@ int sfthd_create_threshold(
     int priority,
     int count,
     unsigned seconds,
-    sfip_var_t* ip_address, PolicyId policy_id)
+    sfip_var_t* ip_address, sfip_var_t* secondary_ip, PolicyId policy_id)
 {
     
     if ( thd_objs == nullptr ) 
@@ -412,8 +421,8 @@ int sfthd_create_threshold(
         thd_objs->sfthd_vector.resize(gen_id + 1, nullptr);
 
     THD_NODE sfthd_node { thd_objs->count++, // Increment count and use it as thd_id
-    gen_id, sig_id, tracking, // by_src, by_dst
-    type, priority, count, seconds, ip_address };
+    gen_id, sig_id, tracking, // by_src, by_dst, by_srcdst
+    type, priority, count, seconds, ip_address, secondary_ip};
     
     if ( sig_id == 0 )
         return sfthd_create_threshold_global(sc, thd_objs, &sfthd_node, policy_id);
@@ -437,15 +446,35 @@ int sfthd_test_rule(XHash* rule_hash, THD_NODE* sfthd_node,
 
 static inline int sfthd_test_suppress(
     THD_NODE* sfthd_node,
-    const SfIp* ip)
+    const SfIp* sip,
+    const SfIp* dip)
 {
-    if ( !sfthd_node->ip_address or
-        sfvar_ip_in(sfthd_node->ip_address, ip) )
-    {
-        /* Don't log, and stop looking( event's to this address
-         * for this gen_id+sig_id) */
-        return -1;
+    if (sfthd_node->tracking == THD_TRK_SRCDST) {
+        if (!sfthd_node->ip_address || !sfthd_node->secondary_ip ||
+            (sfvar_ip_in(sfthd_node->ip_address, sip) &&
+             sfvar_ip_in(sfthd_node->secondary_ip, dip)))
+        {
+#ifdef THD_DEBUG
+            printf("THD_DEBUG: SUPPRESS NODE, do not log events with this sIP->dIP combination\n");
+            fflush(stdout);
+#endif
+            sfthd_node->count++;
+            return -1;
+        }
+    } else {
+        const SfIp* tracked_ip = (sfthd_node->tracking == THD_TRK_SRC) ? sip : dip;
+        if (!sfthd_node->ip_address ||
+            sfvar_ip_in(sfthd_node->ip_address, tracked_ip))
+        {
+#ifdef THD_DEBUG
+            printf("THD_DEBUG: SUPPRESS NODE, do not log events with this IP\n");
+            fflush(stdout);
+#endif
+            sfthd_node->count++;
+            return -1;
+        }
     }
+
     return 1; /* Keep looking for other suppressors */
 }
 
@@ -586,20 +615,24 @@ int sfthd_test_local(
     THD_IP_NODE_KEY key;
     THD_IP_NODE data,* sfthd_ip_node;
     const SfIp* ip;
-
+    const SfIp* secondary_ip;
     // -1 means don't do any limit or thresholding 
     if ( sfthd_node->count == THD_NO_THRESHOLD )
         return 0;
 
     // Get The correct IP
-    if ( sfthd_node->tracking == THD_TRK_SRC )
+    if (sfthd_node->tracking == THD_TRK_SRC){
         ip = sip;
-    else
+    } else if (sfthd_node->tracking == THD_TRK_SRCDST){
+        ip = sip;
+        secondary_ip = dip;
+    } else {
         ip = dip;
+    }
 
     // Check for and test Suppression of this event to this IP
     if ( sfthd_node->type == THD_TYPE_SUPPRESS )
-        return sfthd_test_suppress(sfthd_node, ip);
+        return sfthd_test_suppress(sfthd_node, ip, secondary_ip);
     
     // Go on and do standard thresholding
 
@@ -662,20 +695,26 @@ static inline int sfthd_test_global(
     THD_IP_NODE data;
     THD_IP_NODE* sfthd_ip_node;
     const SfIp* ip;
+    const SfIp* secondary_ip;
 
     /* -1 means don't do any limit or thresholding */
     if ( sfthd_node->count == THD_NO_THRESHOLD)
         return 0;
     
     /* Get The correct IP */
-    if (sfthd_node->tracking == THD_TRK_SRC)
+
+    if (sfthd_node->tracking == THD_TRK_SRC){
         ip = sip;
-    else
+    } else if (sfthd_node->tracking == THD_TRK_SRCDST){
+        ip = sip;
+        secondary_ip = dip;
+    } else {
         ip = dip;
+    }
 
     /* Check for and test Suppression of this event to this IP */
     if ( sfthd_node->type == THD_TYPE_SUPPRESS )
-        return sfthd_test_suppress(sfthd_node, ip);
+        return sfthd_test_suppress(sfthd_node, ip, secondary_ip);
     
     /*
     *  Go on and do standard thresholding

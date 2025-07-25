@@ -20,6 +20,7 @@
 #ifndef REPUTATION_CONFIG_H
 #define REPUTATION_CONFIG_H
 
+#include <unordered_map>
 #include "framework/counts.h"
 #include "sfrt/sfrt.h"
 
@@ -85,7 +86,17 @@ struct ReputationConfig
     AllowAction allow_action = DO_NOT_BLOCK;
     std::string blocklist_path;
     std::string allowlist_path;
+    std::string monitorlist_path;
     std::string list_dir;
+    uint32_t snort_flags; 
+    
+    /* redBorder GeoIP */
+    std::string geoip_db_path;
+    
+    std::string geoip_manifest_path;
+    bool geoip_enabled = false;
+    std::unordered_map<std::string, IPdecision> geoip_actions_countries;
+    std::unordered_map<std::string, IPdecision> geoip_actions_continents;
 };
 
 struct IPrepInfo
@@ -99,6 +110,9 @@ struct ReputationStats
     PegCount packets;
     PegCount blocked;
     PegCount trusted;
+    PegCount geo_ip_blocked;
+    PegCount geo_ip_trusted;
+    PegCount geo_ip_monitored;
     PegCount monitored;
     PegCount memory_allocated;
     PegCount aux_ip_blocked;

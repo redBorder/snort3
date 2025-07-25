@@ -36,8 +36,9 @@
 #include "pub_sub/auxiliary_ip_event.h"
 #include "pub_sub/reputation_events.h"
 #include "utils/util.h"
-
+#include <optional>
 #include "reputation_parse.h"
+#include "geoip/rbgeoip.h"
 
 using namespace snort;
 
@@ -52,6 +53,9 @@ const PegInfo reputation_peg_names[] =
 { CountType::SUM, "blocked", "number of packets blocked" },
 { CountType::SUM, "trusted", "number of packets trusted" },
 { CountType::SUM, "monitored", "number of packets monitored" },
+{ CountType::SUM, "geo_ip_blocked", "number of packets blocked by geoip" },
+{ CountType::SUM, "geo_ip_trusted", "number of packets trusted by geoip" },
+{ CountType::SUM, "geo_ip_monitored", "number of packets monitored by geoip" },
 { CountType::SUM, "memory_allocated", "total memory allocated" },
 { CountType::SUM, "aux_ip_blocked", "number of auxiliary ip packets blocked" },
 { CountType::SUM, "aux_ip_trusted", "number of auxiliary ip packets trusted" },
@@ -165,66 +169,131 @@ static bool decision_per_layer(const ReputationConfig& config, ReputationData& d
     return false;
 }
 
+static IPdecision resolve_geo_decision(const ReputationConfig& config, ip::IpApi& ip_api) {
+    auto apply_decision = [&](const std::string& key, bool is_src, const auto& action_map) -> std::optional<IPdecision> {
+        auto it = action_map.find(key);
+        if (it == action_map.end()) {
+            return std::nullopt;
+        }
+
+        IPdecision decision = it->second;
+
+        switch (decision) {
+            case BLOCKED:
+                reputationstats.geo_ip_blocked++;
+                return is_src ? BLOCKED_SRC : BLOCKED_DST;
+            case TRUSTED:
+                reputationstats.geo_ip_trusted++;
+                return is_src ? TRUSTED_SRC : TRUSTED_DST;
+            case MONITORED:
+                reputationstats.geo_ip_monitored++;
+                return is_src ? MONITORED_SRC : MONITORED_DST;
+            default:
+                return decision;
+        }
+    };
+
+    auto resolve = [&](const SfIp* ip, bool is_src) -> IPdecision {
+        if (!ip) {
+            return DECISION_NULL;
+        }
+
+        SfIpString ip_str;
+        if (is_src)
+            ip_api.get_src()->ntop(ip_str);
+        else
+            ip_api.get_dst()->ntop(ip_str);
+
+        std::string ip_string = ip_str;
+        if (ip_string.empty()) {
+            return DECISION_NULL;
+        }
+
+        std::string country = GeoIpLoader::Manager::getInstance()->getCountryByIP(ip_string);
+        std::string continent = GeoIpLoader::Manager::getInstance()->getContinentByIP(ip_string);
+
+
+        if (auto decision = apply_decision(country, is_src, config.geoip_actions_countries)) {
+            return *decision;
+        }
+
+        if (auto decision = apply_decision(continent, is_src, config.geoip_actions_continents)) {
+            return *decision;
+        }
+
+        return DECISION_NULL;
+    };
+
+    IPdecision result = resolve(ip_api.get_src(), true);
+    if (result == DECISION_NULL) {
+        result = resolve(ip_api.get_dst(), false);
+    }
+
+    return result;
+}
+
 static IPdecision reputation_decision(const ReputationConfig& config, ReputationData& data,
     Packet* p, uint32_t& iplist_id)
 {
     IPdecision decision_final = DECISION_NULL;
+    if (!(config.snort_flags & RUN_FLAG__INLINE)) return decision_final; // redBorder patch (only act if -Q)
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
 
-    if (p->pkth)
-    {
+    if (p->pkth) {
         ingress_intf = p->pkth->ingress_index;
-        if (p->pkth->egress_index < 0)
-            egress_intf = ingress_intf;
-        else
-            egress_intf = p->pkth->egress_index;
+        egress_intf = (p->pkth->egress_index < 0) ? ingress_intf : p->pkth->egress_index;
     }
 
-    if (config.nested_ip == INNER)
-    {
-        decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
-        return decision_final;
+    if (data.ip_list) {
+        if (config.nested_ip == INNER) {
+            decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
+            if (decision_final == DECISION_NULL) {
+                decision_final = resolve_geo_decision(config, p->ptrs.ip_api);
+            }
+            return decision_final;
+        }
     }
 
-    // For OUTER or ALL, save current layers, iterate, then restore layers as needed
+    // Save/restore for OUTER or ALL
     ip::IpApi blocked_api;
     ip::IpApi tmp_api = p->ptrs.ip_api;
     int8_t num_layer = 0;
     IpProtocol tmp_next = p->get_ip_proto_next();
+    if (data.ip_list) {
+        if (config.nested_ip == OUTER) {
+            layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer);
+            decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
+        }
+        else if (config.nested_ip == ALL) {
+            bool done = false;
+            IPdecision decision_current = DECISION_NULL;
 
-    if (config.nested_ip == OUTER)
-    {
-        layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer);
-        decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api, &decision_final);
-    }
-    else if (config.nested_ip == ALL)
-    {
-        bool done = false;
-        IPdecision decision_current = DECISION_NULL;
-
-        while (!done and layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer))
-        {
-            done = decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api,
-                &decision_current);
-            if (decision_current != DECISION_NULL)
-            {
-                if (decision_current == BLOCKED_SRC or decision_current == BLOCKED_DST)
-                    blocked_api = p->ptrs.ip_api;
-                decision_final = decision_current;
-                decision_current = DECISION_NULL;
+            while (!done && layer::set_outer_ip_api(p, p->ptrs.ip_api, p->ip_proto_next, num_layer)) {
+                done = decision_per_layer(config, data, iplist_id, ingress_intf, egress_intf, p->ptrs.ip_api,
+                    &decision_current);
+                if (decision_current != DECISION_NULL) {
+                    if (decision_current == BLOCKED_SRC || decision_current == BLOCKED_DST)
+                        blocked_api = p->ptrs.ip_api;
+                    decision_final = decision_current;
+                    decision_current = DECISION_NULL;
+                }
             }
+        } else {
+            assert(false); // Should never happen
         }
     }
-    else
-        assert(false); // Should never hit this
 
-    if (decision_final != BLOCKED_SRC and decision_final != BLOCKED_DST)
+    if (decision_final == DECISION_NULL)
+        decision_final = resolve_geo_decision(config, p->ptrs.ip_api);
+
+    if (decision_final != BLOCKED_SRC && decision_final != BLOCKED_DST)
         p->ptrs.ip_api = tmp_api;
-    else if (config.nested_ip == ALL and p->ptrs.ip_api != blocked_api)
+    else if (config.nested_ip == ALL && p->ptrs.ip_api != blocked_api)
         p->ptrs.ip_api = blocked_api;
 
     p->ip_proto_next = tmp_next;
+
     return decision_final;
 }
 
@@ -232,10 +301,7 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
     Packet* p, const SfIp* ip)
 {
     IPdecision decision = DECISION_NULL;
-
-    if (!data.ip_list)
-        return decision;
-
+    if (!(config.snort_flags & RUN_FLAG__INLINE)) return decision;  // redBorder patch (only act if -Q)
     uint32_t ingress_intf = 0;
     uint32_t egress_intf = 0;
 
@@ -248,53 +314,67 @@ static IPdecision snort_reputation_aux_ip(const ReputationConfig& config, Reputa
             egress_intf = p->pkth->egress_index;
     }
 
-    IPrepInfo* result = reputation_lookup(config, data, ip);
-    if (result)
-    {
-        uint32_t iplist_id;
-        decision = get_reputation(config, data, result, iplist_id, ingress_intf,
-            egress_intf);
+    uint32_t iplist_id = 0;
 
-        if (decision == BLOCKED)
+    if(data.ip_list){
+        IPrepInfo* result = reputation_lookup(config, data, ip);
+        if (result)
         {
-            // Prior to IPRep logging, IPS policy must be set to the default policy,
-            set_ips_policy(get_default_ips_policy(SnortConfig::get_conf()));
-
-            DetectionEngine::queue_event(GID_REPUTATION, REPUTATION_EVENT_BLOCKLIST_DST);
-            ReputationVerdictEvent event(p, REP_VERDICT_BLOCKED, iplist_id, false);
-            DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
-            p->active->drop_packet(p, true);
-
-            // disable all preproc analysis and detection for this packet
-            DetectionEngine::disable_all(p);
-            p->active->block_session(p, true);
-            p->active->set_drop_reason("reputation");
-            reputationstats.aux_ip_blocked++;
-            if (PacketTracer::is_active())
-            {
-                char ip_str[INET6_ADDRSTRLEN];
-                sfip_ntop(ip, ip_str, sizeof(ip_str));
-                PacketTracer::log("Reputation: packet blocked for auxiliary ip %s, drop\n",
-                    ip_str);
-            }
-        }
-        else if (decision == MONITORED)
-        {
-            DetectionEngine::queue_event(GID_REPUTATION, REPUTATION_EVENT_MONITOR_DST);
-            ReputationVerdictEvent event(p, REP_VERDICT_MONITORED, iplist_id, false);
-            DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
-            reputationstats.aux_ip_monitored++;
-        }
-        else if (decision == TRUSTED)
-        {
-            DetectionEngine::queue_event(GID_REPUTATION, REPUTATION_EVENT_ALLOWLIST_DST);
-            ReputationVerdictEvent event(p, REP_VERDICT_TRUSTED, iplist_id, false);
-            DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
-            p->active->trust_session(p, true);
-            reputationstats.aux_ip_trusted++;
+            decision = get_reputation(config, data, result, iplist_id, ingress_intf,
+                egress_intf);
         }
     }
-    return decision;
+        
+    if(decision == DECISION_NULL){
+        decision = resolve_geo_decision(config, p->ptrs.ip_api);
+        if(decision == BLOCKED_SRC || decision == BLOCKED_DST){
+            decision = BLOCKED;
+        }
+        if(decision == MONITORED_SRC || decision == MONITORED_DST){
+            decision = MONITORED;
+        }
+        if(decision == TRUSTED_SRC || decision == TRUSTED_DST){
+            decision = TRUSTED;
+        }
+    }
+    if (decision == BLOCKED)
+    {
+        // Prior to IPRep logging, IPS policy must be set to the default policy,
+        set_ips_policy(get_default_ips_policy(SnortConfig::get_conf()));
+
+        DetectionEngine::queue_event(GID_REPUTATION, REPUTATION_EVENT_BLOCKLIST_DST);
+        ReputationVerdictEvent event(p, REP_VERDICT_BLOCKED, iplist_id, false);
+        DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
+        p->active->drop_packet(p, true);
+
+        // disable all preproc analysis and detection for this packet
+        DetectionEngine::disable_all(p);
+        p->active->block_session(p, true);
+        p->active->set_drop_reason("reputation");
+        reputationstats.aux_ip_blocked++;
+        if (PacketTracer::is_active())
+        {
+            char ip_str[INET6_ADDRSTRLEN];
+            sfip_ntop(ip, ip_str, sizeof(ip_str));
+            PacketTracer::log("Reputation: packet blocked for auxiliary ip %s, drop\n",
+                ip_str);
+        }
+    }
+    else if (decision == MONITORED)
+    {
+        DetectionEngine::queue_event(GID_REPUTATION, REPUTATION_EVENT_MONITOR_DST);
+        ReputationVerdictEvent event(p, REP_VERDICT_MONITORED, iplist_id, false);
+        DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
+        reputationstats.aux_ip_monitored++;
+    }
+    else if (decision == TRUSTED)
+    {
+        DetectionEngine::queue_event(GID_REPUTATION, REPUTATION_EVENT_ALLOWLIST_DST);
+        ReputationVerdictEvent event(p, REP_VERDICT_TRUSTED, iplist_id, false);
+        DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
+        p->active->trust_session(p, true);
+        reputationstats.aux_ip_trusted++;
+    }    return decision;
 }
 
 static const char* to_string(IPdecision ipd)
@@ -353,11 +433,8 @@ static void populate_trace_data(IPdecision& decision, Packet* p, uint32_t iplist
 static void snort_reputation(const ReputationConfig& config, ReputationData& data, Packet* p)
 {
     IPdecision decision;
-
-    if (!data.ip_list)
-        return;
-
     uint32_t iplist_id;
+
     decision = reputation_decision(config, data, p, iplist_id);
     Active* act = p->active;
 
@@ -370,7 +447,6 @@ static void snort_reputation(const ReputationConfig& config, ReputationData& dat
         ReputationVerdictEvent event(p, REP_VERDICT_BLOCKED, iplist_id, BLOCKED_SRC == decision);
         DataBus::publish(pub_id, ReputationEventIds::REP_MATCHED, event);
         act->drop_packet(p, true);
-
         // disable all preproc analysis and detection for this packet
         DetectionEngine::disable_all(p);
         act->block_session(p, true);
@@ -533,7 +609,9 @@ ReputationData* Reputation::load_data()
     ReputationData* data = new ReputationData();
     if (!config.list_dir.empty())
         ReputationParser::read_manifest(MANIFEST_FILENAME, config, *data);
-
+    if (config.geoip_db_path.size() > 0)
+        GeoIpLoader::Manager::getInstance(config.geoip_db_path);
+        ReputationParser::load_geoip_manifest(config);
     ReputationParser::add_block_allow_List(config, *data);
     ReputationParser::estimate_num_entries(*data);
     if (0 >= data->num_entries)
@@ -569,6 +647,8 @@ void Reputation::tterm()
 void Reputation::show(const SnortConfig*) const
 {
     ConfigLogger::log_value("blocklist", config.blocklist_path.c_str());
+    ConfigLogger::log_value("geoip_db_path", config.geoip_db_path.c_str());
+    ConfigLogger::log_value("geoip_manifest_path", config.geoip_manifest_path.c_str());
     ConfigLogger::log_value("list_dir", config.list_dir.c_str());
     ConfigLogger::log_value("memcap", config.memcap);
     ConfigLogger::log_value("nested_ip", to_string(config.nested_ip));
@@ -576,6 +656,7 @@ void Reputation::show(const SnortConfig*) const
     ConfigLogger::log_flag("scan_local", config.scanlocal);
     ConfigLogger::log_value("allow (action)", to_string(config.allow_action));
     ConfigLogger::log_value("allowlist", config.allowlist_path.c_str());
+    ConfigLogger::log_value("monitorlist", config.monitorlist_path.c_str());
 }
 
 bool Reputation::configure(SnortConfig*)
@@ -607,6 +688,7 @@ static Inspector* reputation_ctor(Module* m)
 {
     ReputationModule* mod = (ReputationModule*)m;
     ReputationConfig* conf = mod->get_data();
+    conf->snort_flags = SnortConfig::get_conf()->run_flags;
     return conf ? new Reputation(conf) : nullptr;
 }
 

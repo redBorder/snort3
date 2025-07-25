@@ -1348,11 +1348,14 @@ static const Parameter suppress_params[] =
     { "sid", Parameter::PT_INT, "0:max32", "0",
       "rule signature ID" },
 
-    { "track", Parameter::PT_ENUM, "by_src | by_dst", nullptr,
+    { "track", Parameter::PT_ENUM, "by_src | by_dst | by_srcdst", nullptr,
       "suppress only matching source or destination addresses" },
 
     { "ip", Parameter::PT_STRING, nullptr, nullptr,
       "restrict suppression to these addresses according to track" },
+
+    { "secondary_ip", Parameter::PT_STRING, nullptr, nullptr,
+      "restrict suppression to these secondary addresses according to track" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
@@ -1388,6 +1391,9 @@ bool SuppressModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("ip") )
         thdx.ip_address = sfip_var_from_string(v.get_string(), "suppress");
+
+    else if ( v.is("secondary_ip") )
+        thdx.secondary_ip = sfip_var_from_string(v.get_string(), "suppress");
 
     return true;
 }
@@ -1442,7 +1448,7 @@ static const Parameter event_filter_params[] =
     { "type", Parameter::PT_ENUM, "limit | threshold | both", nullptr,
       "1st count events | every count events | once after count events" },
 
-    { "track", Parameter::PT_ENUM, "by_src | by_dst", nullptr,
+    { "track", Parameter::PT_ENUM, "by_src | by_dst | by_srcdst", nullptr,
       "filter only matching source or destination addresses" },
 
     { "count", Parameter::PT_INT, "-1:max31", "0",
@@ -1453,6 +1459,9 @@ static const Parameter event_filter_params[] =
 
     { "ip", Parameter::PT_STRING, nullptr, nullptr,
       "restrict filter to these addresses according to track" },
+
+    { "secondary_ip", Parameter::PT_STRING, nullptr, nullptr,
+      "restrict filter to these secodnary addresses according to track" },
 
     { nullptr, Parameter::PT_MAX, nullptr, nullptr, nullptr }
 };
@@ -1507,6 +1516,9 @@ bool EventFilterModule::set(const char*, Value& v, SnortConfig*)
 
     else if ( v.is("ip") )
         thdx.ip_address = sfip_var_from_string(v.get_string(), "event_filter");
+
+    else if ( v.is("secondary_ip") )
+        thdx.secondary_ip = sfip_var_from_string(v.get_string(), "event_filter");
 
     else if ( v.is("count") )
         thdx.count = v.get_int32();
