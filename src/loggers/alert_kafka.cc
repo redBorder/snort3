@@ -1187,7 +1187,7 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event, const ch
         TextLog_Print(full_log, " %s:", event_uuid);
     }
 
-    if (p->has_ip())
+    if (p->has_ip() or p->is_data())
     {
         LogFullPacketData(full_log, p);
     }
