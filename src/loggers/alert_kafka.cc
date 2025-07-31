@@ -1147,10 +1147,6 @@ void KafkaLogger::close()
 
 void LogFullPacketData(TextLog* log, const uint8_t* data, const uint32_t len, Packet* p)
 {
-    string txt;
-    unsigned odx = 0;
-    unsigned offset = 0;
-
     for (uint32_t offset = 0; offset < len; offset += 16)
     {
         TextLog_Print(log, "%06x  ", offset);
