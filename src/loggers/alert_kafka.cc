@@ -1145,10 +1145,11 @@ void KafkaLogger::close()
     GeoIpLoader::Manager::getInstance()->unloadDB();
 }
 
-void LogFullPacketData(TextLog* log, const Packet* p)
+void LogFullPacketData(TextLog* log, const uint8_t* data, const uint32_t len, Packet* p)
 {
-    const uint8_t* data = p->pkt;
-    uint32_t len = p->pktlen;
+    string txt;
+    unsigned odx = 0;
+    unsigned offset = 0;
 
     for (uint32_t offset = 0; offset < len; offset += 16)
     {
@@ -1187,9 +1188,10 @@ void AlertPacketPayload(Packet* p, const char* msg, const Event& event, const ch
         TextLog_Print(full_log, " %s:", event_uuid);
     }
 
-    if (p->has_ip() or p->is_data())
-    {
-        LogFullPacketData(full_log, p);
+    if(p->has_tcp_data()){
+        LogFullPacketData(full_log, p->data, p->dsize, p);
+    } else {
+        LogFullPacketData(full_log, p->pkt, p->pkth->pktlen, p);
     }
 
     TextLog_Puts(full_log, "\n");
