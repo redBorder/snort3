@@ -121,8 +121,31 @@ void CallAlertFuncs(Packet* p, const OptTreeNode* otn, ListHead* head)
         pc.alert_pkts++;
     }
 
+    uint16_t dsize = 0;
+    const uint8_t* data = nullptr;
+
+    if (p->flow && p->flow->gadget)
+        data = p->flow->gadget->adjust_log_packet(p, dsize);
+
+    uint16_t old_dsize = 0;
+    const uint8_t* old_data = nullptr;
+    if (data)
+    {
+        old_dsize = p->dsize;
+        old_data = p->data;
+        p->data = data;
+        p->dsize = dsize;
+    }
+
     OutputSet* idx = head ? head->AlertList : nullptr;
     EventManager::call_alerters(idx, p, otn->sigInfo.message.c_str(), event);
+
+    if (data)
+    {
+        p->data = old_data;
+        p->dsize = old_dsize;
+        delete[] data;
+    }
 }
 
 void RbCallCustomAlert(char* msg, char* act, SigInfo sig, Packet* p, uint32_t priority)
